@@ -1,8 +1,5 @@
 twelvelabs
 snowflake-connector-python
 streamlit
-
-
- subprocess
- youtube-transcript-api 
- google-generativeai 
+youtube-transcript-api 
+google-generativeai 
