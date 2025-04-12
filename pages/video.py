@@ -51,4 +51,4 @@ def video_data(video_url, token):
 if __name__ == "__main__":
     st.title("Microsoft Video Viewer")
     video_url = st.text_input("Paste SharePoint Video URL")
-    video_data(video_url)
+    video_data(video_url,st.session_state.access_token)
