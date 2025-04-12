@@ -6,6 +6,8 @@ def video_data(video_url, token):
         # Extract site and file path from the SharePoint URL
         sharepoint_path = video_url.split("/personal/")[1]
         user_name, relative_path = sharepoint_path.split("/", 1)
+        st.wrtie(sharepoint_path)
+        st.wrtie(user_name)
 
         # Get site ID using Microsoft Graph API
         site_resp = requests.get(
@@ -18,6 +20,7 @@ def video_data(video_url, token):
             return
         
         site_id = site_resp.json().get("id")
+        st.wrtie(site_id)
 
         # Get file ID using Microsoft Graph API
         item_resp = requests.get(
@@ -31,13 +34,15 @@ def video_data(video_url, token):
         
         item_data = item_resp.json()
         item_id = item_data.get("id")
-
+        st.wrtie(item_data)
+        st.wrtie(item_id)
         # Download the file content
         content_resp = requests.get(
             f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/items/{item_id}/content",
             headers={"Authorization": f"Bearer {token}"},
             stream=True
         )
+        st.wrtie(content_resp)
         
         if content_resp.status_code == 200:
             with open("temp_video.mp4", "wb") as video_file:
