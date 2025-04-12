@@ -58,16 +58,20 @@ def video_data(video_url,token):
 
 def main():
     if st.button("Login with Microsoft"):
-        app = msal.PublicClientApplication(client_id, authority=authority)
+        app = msal.ConfidentialClientApplication(
+            client_id="your-client-id",
+            client_credential="your-client-secret",
+            authority=f"https://login.microsoftonline.com/{tenant_id}"
+        )
         result = app.acquire_token_interactive(scopes=scope)
         if "access_token" in result:
             token = result["access_token"]
             st.success("Login successful!")
 
-            if token is not None:
-                st.title("Microsoft Video Viewer")
-                video_url = st.text_input("Paste SharePoint Video URL")
-                video_data(video_url,token)
+    if token is not None:
+        st.title("Microsoft Video Viewer")
+        video_url = st.text_input("Paste SharePoint Video URL")
+        video_data(video_url,token)
 
 if __name__ == "__main__":
     main()
