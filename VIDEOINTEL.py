@@ -3,7 +3,6 @@ import requests
 from urllib.parse import urlencode
 import json
 import msal
-from azure.identity import ClientSecretCredential
 
 # --- CONFIG for Microsoft Azure AD OAuth ---
 client_id = "cfa7fc3c-0a7c-4a45-aa87-f993ed70fd9e"  # Azure AD Application Client ID
