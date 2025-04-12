@@ -6,7 +6,7 @@ import json
 # Your app registration details
 CLIENT_ID = "cfa7fc3c-0a7c-4a45-aa87-f993ed70fd9e"
 CLIENT_SECRET = "uAH8Q~RMG~Dy1hRt1dx6IOhtj39j-gmXImKlTaGr"
-REDIRECT_URI = "http://localhost:8501"  # Same as your app's redirect URI
+REDIRECT_URI = "https://video-intel-cg.streamlit.app/"  # Same as your app's redirect URI
 AUTHORITY = "https://login.microsoftonline.com/common"
 AUTH_ENDPOINT = "/oauth2/v2.0/authorize"
 TOKEN_ENDPOINT = "/oauth2/v2.0/token"
