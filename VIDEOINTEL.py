@@ -4,9 +4,9 @@ from urllib.parse import urlencode, urlparse
 import re
 
 # --- CONFIG for Microsoft Azure AD OAuth ---
-client_id = "2f393ed7-6d7b-45d7-b073-e2d7df8c02f2"
-client_secret = "j6S8Q~tr6NIn2pCWt6Y59B7Oeh4lJ4cDgOfSjdyl"
-tenant_id = "9a1aa158-b023-43de-9bcf-258c8e2787dd"
+client_id = "cfa7fc3c-0a7c-4a45-aa87-f993ed70fd9e"
+client_secret = "uAH8Q~RMG~Dy1hRt1dx6IOhtj39j-gmXImKlTaGr"
+tenant_id = "94a76bb1-611b-4eb5-aee5-e312381c32cb"
 redirect_uri = "https://video-intel-cg.streamlit.app/"  # Make sure this matches in Azure
 
 authorize_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize"
