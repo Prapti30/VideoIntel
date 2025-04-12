@@ -57,7 +57,10 @@ def video_data(video_url,token):
     return
 
 def main():
-    st.button("test")
+    # st.button("test")
+    st.title("Microsoft Video Viewer")
+    video_url = st.text_input("Paste SharePoint Video URL")
+    video_data(video_url,token)
     #     credential = ClientSecretCredential(
     #     tenant_id=tenant_id,
     #     client_id=client_id,
