@@ -170,7 +170,7 @@ st.title("🎬 VideoIntel AI Processor & Chatbot")
 col1, col2 = st.columns(2)
 
 with col1:
-    st.subheader("Analyze YouTube/SharePoint Videos + Gemini Q&A")
+    st.subheader("Smart Video Assistant")
 
     # Input Video Link
     video_link = st.text_input("Paste Video URL here 👇")
