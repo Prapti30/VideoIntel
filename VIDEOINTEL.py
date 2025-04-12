@@ -64,7 +64,6 @@ def main():
         client_credential=client_credential,
         authority=f"https://login.microsoftonline.com/{tenant_id}"
         )
-    st.write(query_params)
     if "code" in query_params:
         code = query_params["code"][0]
         st.write(code)
@@ -77,11 +76,11 @@ def main():
             scopes=["User.Read", "Sites.Read.All"],
             redirect_uri=redirect_uri
         )
-        st.write(result)
 
         # If token is received, store and use it
         if "access_token" in result:
             access_token = result["access_token"]
+            st.write(access_token)
             st.title("Microsoft Video Viewer")
             video_url = st.text_input("Paste SharePoint Video URL")
             video_data(video_url,access_token)
