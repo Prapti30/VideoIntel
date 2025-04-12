@@ -58,7 +58,7 @@ def video_data(video_url,token):
 
 def main():
     # st.button("test")
-    query_params = st.query_params()
+    query_params = st.experimental_get_query_params()
     app = msal.PublicClientApplication(
         client_id=client_id,
         authority=f"https://login.microsoftonline.com/{tenant_id}"
