@@ -7,7 +7,7 @@ from azure.identity import ClientSecretCredential
 
 # --- CONFIG for Microsoft Azure AD OAuth ---
 client_id = "cfa7fc3c-0a7c-4a45-aa87-f993ed70fd9e"  # Azure AD Application Client ID
-client_credential = "uAH8Q~RMG~Dy1hRt1dx6IOhtj39j-gmXImKlTaGr"  # Azure AD Application Client Secret
+client_secret = "uAH8Q~RMG~Dy1hRt1dx6IOhtj39j-gmXImKlTaGr"  # Azure AD Application Client Secret
 tenant_id = "94a76bb1-611b-4eb5-aee5-e312381c32cb"  # Azure AD Tenant ID
 redirect_uri = "https://video-intel-cg.streamlit.app/"  # Make sure this matches in Azure
 
@@ -60,9 +60,9 @@ def video_data(video_url,token):
 def main():
     if st.button("Login with Microsoft"):
         credential = ClientSecretCredential(
-        tenant_id="your-tenant-id",
-        client_id="your-client-id",
-        client_secret="your-client-secret"
+        tenant_id=tenant_id,
+        client_id=client_id,
+        client_secret=client_secret
     )
     token = credential.get_token("https://graph.microsoft.com/.default")
     access_token = token.token
