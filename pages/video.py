@@ -5,13 +5,13 @@ def video_data(video_url):
     if video_url:
         token = st.session_state.access_token
     # Convert SharePoint URL to Microsoft Graph API URL
-        sharepoint_url = video_url.split('/sites/')[1]
-        site_name, relative_path = sharepoint_url.split('/', 1)
+        sharepoint_path = video_url.split("/personal/")[1]
+        user_name, relative_path = sharepoint_path.split("/", 1)
 
         site_resp = requests.get(
-        f"https://graph.microsoft.com/v1.0/sites/root:/sites/{site_name}",
+        f"https://graph.microsoft.com/v1.0/sites/root:/sites/{user_name}",
         headers={"Authorization": f"Bearer {token}"}
-        )
+    )
         site_id = site_resp.json().get("id")
 
         item_resp = requests.get(
