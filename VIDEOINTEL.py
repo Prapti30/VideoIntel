@@ -3,6 +3,7 @@ import requests
 from urllib.parse import urlencode
 import json
 import msal
+from streamlit_extras.switch_page_button import switch_page
 
 # --- CONFIG for Microsoft Azure AD OAuth ---
 client_id = "cfa7fc3c-0a7c-4a45-aa87-f993ed70fd9e"  # Azure AD Application Client ID
@@ -24,37 +25,7 @@ def log_screen():
             token = result["access_token"]
             st.success("Login successful!")
 
-def video_data(video_url,token):
-    st.write(token)
-    if video_url and token:
-        st.write(token)
-    # Convert SharePoint URL to Microsoft Graph API URL
-        sharepoint_url = video_url.split('/sites/')[1]
-        site_name, relative_path = sharepoint_url.split('/', 1)
 
-        site_resp = requests.get(
-        f"https://graph.microsoft.com/v1.0/sites/root:/sites/{site_name}",
-        headers={"Authorization": f"Bearer {token}"}
-        )
-        site_id = site_resp.json().get("id")
-
-        item_resp = requests.get(
-        f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{relative_path}",
-        headers={"Authorization": f"Bearer {token}"}
-        )
-        item_data = item_resp.json()
-        item_id = item_data.get("id")
-
-        content_resp = requests.get(
-        f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/items/{item_id}/content",
-        headers={"Authorization": f"Bearer {token}"},
-        stream=True
-        )
-        with open("temp_video.mp4", "wb") as f:
-            for chunk in content_resp.iter_content(chunk_size=8192):
-                f.write(chunk)
-
-        st.video("temp_video.mp4")
 
 def main():
     # st.button("test")
@@ -80,13 +51,12 @@ def main():
         # If token is received, store and use it
         if "access_token" in result:
             st.session_state.access_token = result["access_token"]
-            st.experimental_set_query_params()  # Clear the URL query parameters
+            st.experimental_set_query_params()
+            switch_page("video")
+              # Clear the URL query parameters
         else:
             st.write("Error: Could not acquire token.")
             st.write(result)
-        st.title("Microsoft Video Viewer")
-        video_url = st.text_input("Paste SharePoint Video URL")
-        video_data(video_url,st.session_state.access_token)
     
     #     credential = ClientSecretCredential(
     #     tenant_id=tenant_id,
