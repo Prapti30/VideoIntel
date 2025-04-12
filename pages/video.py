@@ -246,9 +246,9 @@ with col2:
             else:
                 st.error("Failed to get response from Gemini.")
 
-if st.session_state.chat_history:
-        st.subheader("💬 Chat History")
-        for question, answer in st.session_state.chat_history.items():
-            st.markdown(f"**Q:** {question}")
-            st.markdown(f"**A:** {answer}")
-            st.markdown("---")
+    if st.session_state.chat_history:
+            st.subheader("💬 Chat History")
+            for question, answer in st.session_state.chat_history.items():
+                st.markdown(f"**Q:** {question}")
+                st.markdown(f"**A:** {answer}")
+                st.markdown("---")
