@@ -63,6 +63,7 @@ def main():
         client_id=client_id,
         authority=f"https://login.microsoftonline.com/{tenant_id}"
         )
+    st.write(query_params)
     if "code" in query_params:
         code = query_params["code"][0]
         st.write(code)
