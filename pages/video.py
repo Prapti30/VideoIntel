@@ -3,55 +3,60 @@ import streamlit as st
 
 def video_data(video_url, token):
     if video_url and token:
-        # Extract site and file path from the SharePoint URL
-        sharepoint_path = video_url.split("/personal/")[1]
-        user_name, relative_path = sharepoint_path.split("/", 1)
-        st.write(sharepoint_path)
-        st.write(user_name)
+        try:
+            # Extract user email from the SharePoint URL
+            user_email = video_url.split("/personal/")[1].split("/")[0]
+            user_email = user_email.replace("_", "@")  # Convert sanchit_arora_cginfinity_com → sanchit@arora.cginfinity.com
 
-        # Get site ID using Microsoft Graph API
-        site_resp = requests.get(
-            f"https://graph.microsoft.com/v1.0/sites/root:/sites/{user_name}",
-            headers={"Authorization": f"Bearer {token}"}
-        )
-        
-        if site_resp.status_code != 200:
-            st.error("Failed to retrieve site information.")
-            return
-        
-        site_id = site_resp.json().get("id")
-        st.write(site_id)
+            # Get site ID for the user's OneDrive
+            site_resp = requests.get(
+                f"https://graph.microsoft.com/v1.0/users/{user_email}/drive/root",  # Use OneDrive endpoint
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            
+            if site_resp.status_code != 200:
+                st.error(f"Failed to retrieve OneDrive site. Error: {site_resp.json()}")
+                return
 
-        # Get file ID using Microsoft Graph API
-        item_resp = requests.get(
-            f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{relative_path}",
-            headers={"Authorization": f"Bearer {token}"}
-        )
-        
-        if item_resp.status_code != 200:
-            st.error("Failed to retrieve file information.")
-            return
-        
-        item_data = item_resp.json()
-        item_id = item_data.get("id")
-        st.write(item_data)
-        st.write(item_id)
-        # Download the file content
-        content_resp = requests.get(
-            f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/items/{item_id}/content",
-            headers={"Authorization": f"Bearer {token}"},
-            stream=True
-        )
-        st.write(content_resp)
-        
-        if content_resp.status_code == 200:
-            with open("temp_video.mp4", "wb") as video_file:
-                for chunk in content_resp.iter_content(chunk_size=8192):
-                    video_file.write(chunk)
-            st.success("Video downloaded successfully!")
-            st.video("temp_video.mp4")
-        else:
-            st.error("Failed to download video.")
+            # Extract drive ID from the response
+            drive_id = site_resp.json().get("parentReference", {}).get("driveId")
+            if not drive_id:
+                st.error("Could not retrieve drive ID.")
+                return
+
+            # Extract file path from the URL
+            file_path = "/".join(video_url.split("/personal/")[1].split("/")[3:])  # Skip user/email/Documents/...
+
+            # Get file metadata using the drive ID and file path
+            item_resp = requests.get(
+                f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{file_path}",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            
+            if item_resp.status_code != 200:
+                st.error(f"File not found. Error: {item_resp.json()}")
+                return
+
+            item_id = item_resp.json().get("id")
+            
+            # Download the file
+            content_resp = requests.get(
+                f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{item_id}/content",
+                headers={"Authorization": f"Bearer {token}"},
+                stream=True
+            )
+            
+            if content_resp.status_code == 200:
+                with open("temp_video.mp4", "wb") as f:
+                    for chunk in content_resp.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                st.success("Video downloaded!")
+                st.video("temp_video.mp4")
+            else:
+                st.error(f"Download failed. Status: {content_resp.status_code}")
+
+        except Exception as e:
+            st.error(f"Error: {str(e)}")
 
 if __name__ == "__main__":
     st.title("Microsoft Video Viewer")
