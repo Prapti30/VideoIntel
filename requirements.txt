@@ -5,3 +5,4 @@ youtube-transcript-api
 google-generativeai 
 msal
 msal_streamlit_authentication
+azure-identity
