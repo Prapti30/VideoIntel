@@ -1,31 +1,31 @@
 import streamlit as st
 import requests
 from urllib.parse import urlencode
-import re
 
-# --- CONFIG for Microsoft Azure AD OAuth ---
+# --- CONFIG ---
 client_id = "cfa7fc3c-0a7c-4a45-aa87-f993ed70fd9e"
 client_secret = "uAH8Q~RMG~Dy1hRt1dx6IOhtj39j-gmXImKlTaGr"
 tenant_id = "94a76bb1-611b-4eb5-aee5-e312381c32cb"
-redirect_uri = "https://video-intel-cg.streamlit.app/"  # Make sure this matches in Azure
+redirect_uri = "https://video-intel-cg.streamlit.app/"
+sharepoint_file_url = "https://cygrp-my.sharepoint.com/:v:/r/personal/sanchit_arora_cginfinity_com/Documents/Microsoft%20Teams%20Chat%20Files/DOCINTEL.MP4?csf=1&web=1&e=5AjE0k"
 
+# Azure endpoints
 authorize_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize"
 token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
 scope = "openid profile User.Read Files.Read.All Sites.Read.All offline_access"
 
-# --- FUNCTIONS ---
+# --- HELPER FUNCTIONS ---
 def build_auth_url():
     params = {
         "client_id": client_id,
         "response_type": "code",
         "redirect_uri": redirect_uri,
-        "response_mode": "query",
         "scope": scope,
         "state": "12345"
     }
     return f"{authorize_url}?{urlencode(params)}"
 
-def get_token_from_code(code):
+def get_token(code):
     data = {
         "client_id": client_id,
         "scope": scope,
@@ -34,91 +34,45 @@ def get_token_from_code(code):
         "grant_type": "authorization_code",
         "client_secret": client_secret,
     }
-    headers = {
-        "Content-Type": "application/x-www-form-urlencoded"
-    }
-    response = requests.post(token_url, headers=headers, data=data)
-    if response.status_code == 200:
-        return response.json()
-    else:
-        st.error(f"Failed to get Access Token. Status Code: {response.status_code}, Details: {response.text}")
-        return None
+    response = requests.post(token_url, data=data)
+    return response.json() if response.status_code == 200 else None
 
-def get_user_info(access_token):
-    headers = {
-        "Authorization": f"Bearer {access_token}"
-    }
-    response = requests.get("https://graph.microsoft.com/v1.0/me", headers=headers)
+def get_file_content(access_token, file_url):
+    headers = {"Authorization": f"Bearer {access_token}"}
+    response = requests.get(file_url, headers=headers)
     if response.status_code == 200:
-        return response.json()
+        return response.content
     else:
-        st.error(f"Failed to fetch user info: {response.text}")
+        st.error(f"Failed to fetch file: {response.text}")
         return None
-
-def get_default_site_id(access_token):
-    headers = {
-        "Authorization": f"Bearer {access_token}"
-    }
-    response = requests.get("https://graph.microsoft.com/v1.0/me/drive", headers=headers)
-    if response.status_code == 200:
-        site_data = response.json()
-        return site_data.get('parentReference', {}).get('siteId')
-    else:
-        st.error(f"Failed to fetch default site info: {response.text}")
-        return None
-
-def list_drive_items(access_token, site_id):
-    headers = {
-        "Authorization": f"Bearer {access_token}"
-    }
-    endpoint = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root/children"
-    response = requests.get(endpoint, headers=headers)
-    if response.status_code == 200:
-        return response.json().get('value', [])
-    else:
-        st.error(f"Failed to get SharePoint files: {response.text}")
-        return []
 
 # --- MAIN APP ---
 def main():
-    st.set_page_config(page_title="SharePoint Files Browser", page_icon="🗂️")
-    st.title("🗂️ Browse Your SharePoint Files ")
+    st.set_page_config(page_title="SharePoint File Viewer", page_icon="📄")
+    st.title("📄 View SharePoint File")
 
     query_params = st.experimental_get_query_params()
-
+    
     if "code" not in query_params:
-        auth_url = build_auth_url()
-        st.markdown(f"[Login with Microsoft]({auth_url})", unsafe_allow_html=True)
+        st.markdown(f"[🔐 Login with Microsoft]({build_auth_url()})", unsafe_allow_html=True)
     else:
         code = query_params["code"][0]
-        token_response = get_token_from_code(code)
-
-        if token_response and "access_token" in token_response:
-            access_token = token_response["access_token"]
-            user_info = get_user_info(access_token)
-
-            if user_info:
-                user_email = user_info.get("mail") or user_info.get("userPrincipalName")
-                st.success(f"Logged in as: {user_email}")
-
-                site_id = get_default_site_id(access_token)
-
-                if site_id:
-                    st.success(f"Found default Site ID: {site_id}")
-                    st.subheader("📂 Files and Folders:")
-
-                    drive_items = list_drive_items(access_token, site_id)
-
-                    if drive_items:
-                        for item in drive_items:
-                            if item.get('folder'):
-                                st.write(f"📁 {item['name']}")
-                            else:
-                                st.write(f"📄 {item['name']}")
-                    else:
-                        st.info("No files or folders found.")
+        token_data = get_token(code)
+        
+        if token_data and "access_token" in token_data:
+            access_token = token_data["access_token"]
+            
+            # Fetch file content
+            file_content = get_file_content(access_token, sharepoint_file_url)
+            
+            if file_content:
+                st.subheader("🎬 DOCINTEL.MP4")
+                st.video(file_content)
+            else:
+                st.error("⚠️ Unable to display the file.")
+                
         else:
-            st.error("Login failed. Please try again.")
+            st.error("⚠️ Login failed. Please try again.")
 
 if __name__ == "__main__":
     main()
