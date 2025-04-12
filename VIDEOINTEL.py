@@ -33,7 +33,7 @@ def main():
             logout_request={},
             login_button_text="Login with Microsoft",
             logout_button_text="Logout",
-            key=1,  # Optional, if multiple instances are needed
+            key="1",  # <-- key changed to string
         )
 
         # Display user information upon successful login
@@ -46,7 +46,6 @@ def main():
             if video_url:
                 st.write(f"Video URL: {video_url}")
                 # Implement video handling logic here
-
 
 if __name__ == "__main__":
     main()
