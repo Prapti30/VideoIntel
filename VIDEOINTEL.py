@@ -80,6 +80,8 @@ def main():
         # If token is received, store and use it
         if "access_token" in result:
             st.session_state.access_token = result["access_token"]
+            st.experimental_set_query_params()  # Clear the URL query parameters
+            st.experimental_rerun()
         else:
             st.write("Error: Could not acquire token.")
             st.write(result)
