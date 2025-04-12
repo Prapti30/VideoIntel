@@ -57,6 +57,7 @@ def video_data(video_url,token):
 
 def main():
     # st.button("test")
+    access_token = None
     query_params = st.experimental_get_query_params()
     app = msal.ConfidentialClientApplication (
         client_id=client_id,
