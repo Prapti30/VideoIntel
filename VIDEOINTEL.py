@@ -58,13 +58,15 @@ def video_data(video_url,token):
 
 def main():
     # st.button("test")
-    query_params = st.experimental_get_query_params()
+    query_params = st.query_params()
     app = msal.PublicClientApplication(
         client_id=client_id,
         authority=f"https://login.microsoftonline.com/{tenant_id}"
         )
     if "code" in query_params:
         code = query_params["code"][0]
+        st.write(code)
+        
 
         
         # Now, exchange the authorization code for an access token
@@ -73,6 +75,7 @@ def main():
             scopes=["User.Read", "Sites.Read.All"],
             redirect_uri=redirect_uri
         )
+        st.write(result)
 
         # If token is received, store and use it
         if "access_token" in result:
