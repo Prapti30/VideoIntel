@@ -5,8 +5,11 @@ def video_data(video_url, token):
     if video_url and token:
         try:
             # Extract user email from the SharePoint URL
-            user_email = video_url.split("/personal/")[1].split("/")[0]
-            user_email = user_email.replace("_", "@")  # Convert sanchit_arora_cginfinity_com → sanchit@arora.cginfinity.com
+            sharepoint_path = video_url.split("/personal/")[1]
+            user_name, relative_path = sharepoint_path.split("/", 1)
+            parts = user_name.split("_")  # ["sanchit", "arora", "cginfinity", "com"]
+            user_email = ".".join(parts[:-1]) + "@" + parts[-1].replace("_com", ".com")
+            st.write(user_email) # Convert sanchit_arora_cginfinity_com → sanchit@arora.cginfinity.com
 
             # Get site ID for the user's OneDrive
             site_resp = requests.get(
