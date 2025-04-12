@@ -73,6 +73,7 @@ def main():
         # Now, exchange the authorization code for an access token
         result = app.acquire_token_by_authorization_code(
             code,
+            client_secret=client_credential,
             scopes=["User.Read", "Sites.Read.All"],
             redirect_uri=redirect_uri
         )
