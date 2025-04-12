@@ -55,8 +55,6 @@ def video_data(video_url,token):
 
         st.video("temp_video.mp4")
 
-    return
-
 def main():
     # st.button("test")
     query_params = st.experimental_get_query_params()
@@ -80,13 +78,12 @@ def main():
         # If token is received, store and use it
         if "access_token" in result:
             access_token = result["access_token"]
-            st.write(access_token)
-            st.title("Microsoft Video Viewer")
-            video_url = st.text_input("Paste SharePoint Video URL")
-            video_data(video_url,access_token)
         else:
             st.write("Error: Could not acquire token.")
             st.write(result)
+        st.title("Microsoft Video Viewer")
+        video_url = st.text_input("Paste SharePoint Video URL")
+        video_data(video_url,access_token)
     
     #     credential = ClientSecretCredential(
     #     tenant_id=tenant_id,
