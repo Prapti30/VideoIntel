@@ -1,22 +1,32 @@
-import requests
+# app.py
+
 import streamlit as st
-import subprocess
-import time
+import requests
 import uuid
-from urllib.parse import urlparse, parse_qs
+import time
+import os
 from twelvelabs import TwelveLabs
-from snowflake_connect import get_snowflake_connection
+from snowflake.connector import connect
 from google.generativeai import configure, GenerativeModel
 
-# === API Keys ===
-twelve_api_key = "tlk_1CPRENS1M7PJ1G2HTQ1QN2JHC2RS"
-index_id = "67f69df0f42e97f625940bcd"
+# ==== API Keys & Configurations ====
+twelve_api_key = "YOUR_TWELVE_LABS_API_KEY"
+index_id = "YOUR_TWELVE_LABS_INDEX_ID"
+gemini_api_key = "YOUR_GEMINI_API_KEY"
+
+snowflake_user = "YOUR_SNOWFLAKE_USER"
+snowflake_password = "YOUR_SNOWFLAKE_PASSWORD"
+snowflake_account = "YOUR_SNOWFLAKE_ACCOUNT"
+snowflake_database = "YOUR_DATABASE"
+snowflake_schema = "YOUR_SCHEMA"
+snowflake_warehouse = "YOUR_WAREHOUSE"
+
+# ==== Initialize Clients ====
 client = TwelveLabs(api_key=twelve_api_key)
+configure(api_key=gemini_api_key)
+gemini_model = GenerativeModel(model_name="gemini-1.5-pro")
 
-configure(api_key="AIzaSyD5avNnryzA6Y-sDTRS_vcj55O91Xlcq5o") 
-gemini_model = GenerativeModel("gemini-1.5-pro")
-
-# === Session States ===
+# ==== Session State Initialization ====
 if 'processing' not in st.session_state:
     st.session_state.processing = False
 if 'results' not in st.session_state:
@@ -28,65 +38,62 @@ if 'current_video_id' not in st.session_state:
 if 'current_summary' not in st.session_state:
     st.session_state.current_summary = None
 
-# === Core Functions ===
-def download_sharepoint_video(url, token):
+# ==== Functions ====
+
+def download_sharepoint_video_direct(url):
+    """Download video from SharePoint if publicly accessible"""
     try:
-        sharepoint_path = url.split("/personal/")[1]
-        user_name, relative_path = sharepoint_path.split("/", 1)
-        user_email = user_name.replace("_", ".").replace(".cginfinity.com", "@cginfinity.com")
-
-        file_path = "/".join(relative_path.split("/")[1:])
-
-        # Get user's OneDrive root folder
-        site_resp = requests.get(
-            f"https://graph.microsoft.com/v1.0/users/{user_email}/drive/root",
-            headers={"Authorization": f"Bearer {token}"}
-        )
-        site_resp.raise_for_status()
-        drive_id = site_resp.json().get("parentReference", {}).get("driveId")
-
-        # Get file metadata
-        item_resp = requests.get(
-            f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{file_path}",
-            headers={"Authorization": f"Bearer {token}"}
-        )
-        item_resp.raise_for_status()
-        item_id = item_resp.json().get("id")
-
-        # Download video
-        content_resp = requests.get(
-            f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{item_id}/content",
-            headers={"Authorization": f"Bearer {token}"},
-            stream=True
-        )
-        content_resp.raise_for_status()
-
-        output_path = f"temp_video_{uuid.uuid4()}.mp4"
-        with open(output_path, "wb") as f:
-            for chunk in content_resp.iter_content(chunk_size=8192):
-                f.write(chunk)
-
-        return output_path
+        temp_filename = f"temp_video_{uuid.uuid4()}.mp4"
+        with requests.get(url, stream=True) as response:
+            response.raise_for_status()
+            with open(temp_filename, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+        return temp_filename
     except Exception as e:
-        st.error(f"Error downloading SharePoint video: {str(e)}")
+        st.error(f"Failed to download video: {e}")
         return None
 
 def upload_video(filepath):
-    task = client.task.create(index_id=index_id, file=filepath)
-    return task.id
+    """Upload video to TwelveLabs"""
+    try:
+        task = client.task.create(index_id=index_id, file=filepath)
+        return task.id
+    except Exception as e:
+        st.error(f"Failed to upload video: {e}")
+        return None
 
 def wait_for_indexing(task_id):
+    """Wait for TwelveLabs to finish indexing"""
+    st.info("Waiting for TwelveLabs to index the video...")
     while True:
         task = client.task.retrieve(task_id)
         if task.status == "ready":
+            st.success("Video indexing completed.")
             return task
+        elif task.status == "failed":
+            st.error("Video indexing failed.")
+            return None
         time.sleep(5)
 
+def get_snowflake_connection():
+    """Connect to Snowflake"""
+    conn = connect(
+        user=snowflake_user,
+        password=snowflake_password,
+        account=snowflake_account,
+        warehouse=snowflake_warehouse,
+        database=snowflake_database,
+        schema=snowflake_schema,
+    )
+    return conn
+
 def store_video_info_in_snowflake(video_id, task_id, video_name):
-    conn = get_snowflake_connection()
-    cursor = conn.cursor()
+    """Store video info in Snowflake"""
     try:
-        cursor.execute("""
+        conn = get_snowflake_connection()
+        cursor = conn.cursor()
+        cursor.execute(f"""
             CREATE TABLE IF NOT EXISTS uploaded_videos (
                 video_id STRING,
                 task_id STRING,
@@ -99,68 +106,51 @@ def store_video_info_in_snowflake(video_id, task_id, video_name):
             VALUES (%s, %s, %s)
         """, (video_id, task_id, video_name))
         conn.commit()
+        st.success("Video info stored in Snowflake.")
     except Exception as e:
-        st.error(f"Failed to store in Snowflake: {str(e)}")
+        st.error(f"Failed to store video info in Snowflake: {e}")
     finally:
         cursor.close()
         conn.close()
 
-def chat_with_gemini(prompt):
-    chat = gemini_model.start_chat(history=st.session_state.chat_history)
-    response = chat.send_message(prompt)
-    st.session_state.chat_history.append({"role": "user", "parts": [prompt]})
-    st.session_state.chat_history.append({"role": "model", "parts": [response.text]})
-    return response.text
+# ==== Streamlit UI ====
 
-# === Streamlit UI ===
-st.title("SharePoint Video Uploader + Chatbot")
+st.title("📹 SharePoint Video Processor")
 
 sharepoint_url = st.text_input("Enter SharePoint Video URL:")
-access_token = st.text_input("Enter Access Token (Microsoft Graph API):", type="password")
 
-if st.button("Upload and Index Video"):
-    if sharepoint_url and access_token:
-        st.session_state.processing = True
-        video_path = download_sharepoint_video(sharepoint_url, access_token)
-        if video_path:
-            st.success("Video downloaded successfully!")
-
-            # Upload to TwelveLabs
-            task_id = upload_video(video_path)
-            st.info("Uploaded to TwelveLabs, waiting for indexing...")
-            task_info = wait_for_indexing(task_id)
-
-            video_id = str(uuid.uuid4())
-            video_name = video_path.split("/")[-1]
-
-            st.session_state.current_video_id = video_id
-
-            # Store in Snowflake
-            store_video_info_in_snowflake(video_id, task_id, video_name)
-            st.success("Stored video info in Snowflake Database!")
-            st.success("Video ready! Start chatting below 👇")
-
-        st.session_state.processing = False
+if st.button("Process Video"):
+    if not sharepoint_url:
+        st.warning("⚠️ Please enter a valid SharePoint URL.")
     else:
-        st.error("Please enter both SharePoint URL and Access Token.")
+        st.session_state.processing = True
 
-# === Chatbot Section ===
-if st.session_state.current_video_id:
-    st.header("Chat with the Video 📽️🤖")
-    user_prompt = st.text_input("Ask something about the video:")
+        filepath = download_sharepoint_video_direct(sharepoint_url)
 
-    if st.button("Send"):
-        if user_prompt:
-            response = chat_with_gemini(user_prompt)
-            st.markdown(f"**Gemini:** {response}")
+        if filepath:
+            st.success("✅ Video downloaded successfully!")
 
-    # Show chat history
-    if st.session_state.chat_history:
-        st.subheader("Chat History:")
-        for message in st.session_state.chat_history:
-            role = message["role"]
-            text = message["parts"][0]
-            if role == "user":
-                st.markdown(f"**You:** {text}")
+            task_id = upload_video(filepath)
+
+            if task_id:
+                task = wait_for_indexing(task_id)
+
+                if task:
+                    video_id = task.metadata.video_id
+                    video_name = os.path.basename(filepath)
+
+                    st.session_state.current_video_id = video_id
+                    store_video_info_in_snowflake(video_id, task_id, video_name)
+
+                    st.balloons()
+                    st.success(f"🎉 Video '{video_name}' processed and stored successfully!")
+                    
+                    # Clean up downloaded video
+                    if os.path.exists(filepath):
+                        os.remove(filepath)
+                else:
+                    st.error("❌ Video processing failed during indexing.")
             else:
-                st.markdown(f"**Gemini:** {text}")
+                st.error("❌ Failed to upload video to TwelveLabs.")
+        else:
+            st.error("❌ Failed to download video from SharePoint.")
