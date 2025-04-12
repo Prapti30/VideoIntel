@@ -7,8 +7,8 @@ def video_data(video_url, token):
             # Extract user email from the SharePoint URL
             sharepoint_path = video_url.split("/personal/")[1]
             user_name, relative_path = sharepoint_path.split("/", 1)
-            parts = user_name.split("_")  # ["sanchit", "arora", "cginfinity", "com"]
-            user_email = ".".join(parts[:-1]) + "@" + parts[-1].replace("_com", ".com")
+            user_name = user_name.split('_','.')
+            user_email = user_name.replace('.cginfinity.com','@cginfinity.com')
             st.write(user_email) # Convert sanchit_arora_cginfinity_com → sanchit@arora.cginfinity.com
 
             # Get site ID for the user's OneDrive
