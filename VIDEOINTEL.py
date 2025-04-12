@@ -59,38 +59,38 @@ def video_data(video_url,token):
 
 def main():
     if st.button("Login with Microsoft"):
-        credential = ClientSecretCredential(
-        tenant_id=tenant_id,
-        client_id=client_id,
-        client_secret=client_secret
-    )
-    token = credential.get_token("https://graph.microsoft.com/.default")
-    access_token = token.token
-    #     app = msal.PublicClientApplication(
+    #     credential = ClientSecretCredential(
+    #     tenant_id=tenant_id,
     #     client_id=client_id,
-    #     client_credential=client_credential,
-    #     authority=f"https://login.microsoftonline.com/{tenant_id}"
+    #     client_secret=client_secret
     # )
+    # token = credential.get_token("https://graph.microsoft.com/.default")
+    # access_token = token.token
+        app = msal.PublicClientApplication(
+        client_id=client_id,
+        client_credential=client_credential,
+        authority=f"https://login.microsoftonline.com/{tenant_id}"
+        )
 
-    # # Check if user already logged in
-    # query_params = st.experimental_get_query_params()
-    # if "code" in query_params:
-    #     code = query_params["code"][0]
+        # Check if user already logged in
+        query_params = st.experimental_get_query_params()
+        if "code" in query_params:
+            code = query_params["code"][0]
 
-    #     result = app.acquire_token_by_authorization_code(
-    #         code,
-    #         scopes=["User.Read", "Sites.Read.All"],
-    #         redirect_uri=redirect_uri
-    #     )
+            result = app.acquire_token_by_authorization_code(
+                code,
+                scopes=["User.Read", "Sites.Read.All"],
+                redirect_uri=redirect_uri
+            )
 
-        # if "access_token" in result:
-        #     token = result["access_token"]
-        #     st.success("Login successful!")
+            if "access_token" in result:
+                token = result["access_token"]
+                st.success("Login successful!")
 
-    if access_token is not None:
-        st.title("Microsoft Video Viewer")
-        video_url = st.text_input("Paste SharePoint Video URL")
-        video_data(video_url,access_token)
+            if token is not None:
+                st.title("Microsoft Video Viewer")
+                video_url = st.text_input("Paste SharePoint Video URL")
+                video_data(video_url,token)
 
 if __name__ == "__main__":
     main()
