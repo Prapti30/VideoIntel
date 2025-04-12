@@ -59,11 +59,22 @@ def video_data(video_url,token):
 def main():
     if st.button("Login with Microsoft"):
         app = msal.ConfidentialClientApplication(
-            client_id=client_id,
-            client_credential=client_credential,
-            authority=f"https://login.microsoftonline.com/{tenant_id}"
+        client_id=client_id,
+        client_credential=client_credential,
+        authority=f"https://login.microsoftonline.com/{tenant_id}"
+    )
+
+    # Check if user already logged in
+    query_params = st.experimental_get_query_params()
+    if "code" in query_params:
+        code = query_params["code"][0]
+
+        result = app.acquire_token_by_authorization_code(
+            code,
+            scopes=["User.Read", "Sites.Read.All"],
+            redirect_uri=redirect_uri
         )
-        result = app.acquire_token_interactive(scopes=scope)
+
         if "access_token" in result:
             token = result["access_token"]
             st.success("Login successful!")
