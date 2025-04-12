@@ -82,7 +82,7 @@ def list_drive_items(access_token, site_id):
 # --- MAIN APP ---
 def main():
     st.set_page_config(page_title="SharePoint Files Browser", page_icon="🗂️")
-    st.title("🗂️ Browse Your SharePoint Files (No Links)")
+    st.title("🗂️ Browse Your SharePoint Files ")
 
     query_params =  st.experimental_get_query_params()
 
