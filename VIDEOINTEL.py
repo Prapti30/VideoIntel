@@ -84,7 +84,7 @@ def main():
     st.set_page_config(page_title="SharePoint Files Browser", page_icon="🗂️")
     st.title("🗂️ Browse Your SharePoint Files (No Links)")
 
-    query_params =  st.query_params()
+    query_params =  st.experimental_get_query_params()
 
     if "code" not in query_params:
         auth_url = build_auth_url()
