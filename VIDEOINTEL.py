@@ -1,162 +1,132 @@
 import streamlit as st
-import subprocess
-import time
-import uuid
 import requests
-from urllib.parse import urlparse, parse_qs
-from twelvelabs import TwelveLabs
-from snowflake_connect import get_snowflake_connection
-from google.generativeai import configure, GenerativeModel
-import os
+from urllib.parse import urlencode, urlparse, parse_qs
+import re
 
-# === API Keys ===
-api_key = "tlk_1CPRENS1M7PJ1G2HTQ1QN2JHC2RS"
-index_id = "67f69df0f42e97f625940bcd"
-client = TwelveLabs(api_key=api_key)
+# --- CONFIG for Microsoft Azure AD OAuth ---
+client_id = "cfa7fc3c-0a7c-4a45-aa87-f993ed70fd9e"
+client_secret = "uAH8Q~RMG~Dy1hRt1dx6IOhtj39j-gmXImKlTaGr"
+tenant_id = "94a76bb1-611b-4eb5-aee5-e312381c32cb"  # Your Azure AD Tenant ID
+redirect_uri = "https://video-intel-cg.streamlit.app/"
 
-configure(api_key="AIzaSyD5avNnryzA6Y-sDTRS_vcj55O91Xlcq5o")
-gemini_model = GenerativeModel("gemini-1.5-pro")
+authorize_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize"
+token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+scope = "https://graph.microsoft.com/.default"  # Updated scope for SharePoint access
 
-# === Session States ===
-if 'processing' not in st.session_state:
-    st.session_state.processing = False
-if 'results' not in st.session_state:
-    st.session_state.results = []
-if 'chat_history' not in st.session_state:
-    st.session_state.chat_history = {}
-if 'current_video_id' not in st.session_state:
-    st.session_state.current_video_id = None
-if 'current_summary' not in st.session_state:
-    st.session_state.current_summary = None
+# --- FUNCTIONS ---
+def build_auth_url():
+    params = {
+        "client_id": client_id,
+        "response_type": "code",
+        "redirect_uri": redirect_uri,
+        "response_mode": "query",
+        "scope": scope,
+        "state": "12345"  # Random state value
+    }
+    return f"{authorize_url}?{urlencode(params)}"
 
-# === Core Functions ===
-def get_video_id(url):
-    parsed_url = urlparse(url)
-    query = parse_qs(parsed_url.query)
-    if 'v' in query:
-        return query['v'][0]
-    return parsed_url.path.split('/')[-1]
+def get_token_from_code(code):
+    data = {
+        "client_id": client_id,
+        "scope": scope,
+        "code": code,
+        "redirect_uri": redirect_uri,
+        "grant_type": "authorization_code",
+        "client_secret": client_secret,
+    }
+    response = requests.post(token_url, data=data)
+    return response.json()
 
-def download_youtube_video(url, video_id):
-    output_path = f"video_{video_id}.mp4"
-    try:
-        command = f"yt-dlp -f best -o {output_path} {url}"
-        subprocess.run(command, shell=True, check=True)
-        if not os.path.exists(output_path):
-            raise Exception(f"Video file was not downloaded: {output_path}")
-        return output_path
-    except subprocess.CalledProcessError as e:
-        raise Exception(f"Failed to download YouTube video. {str(e)}")
+def get_user_info(access_token):
+    headers = {
+        "Authorization": f"Bearer {access_token}"
+    }
+    response = requests.get("https://graph.microsoft.com/v1.0/me", headers=headers)
+    return response.json()
 
-def download_sharepoint_video(url, video_id):
-    output_path = f"sharepoint_video_{video_id}.mp4"
-    try:
-        response = requests.get(url, stream=True)
-        if response.status_code == 200:
-            with open(output_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
-            return output_path
+def get_sharepoint_items(site_id, access_token):
+    # Get all items in the site's document library
+    headers = {
+        "Authorization": f"Bearer {access_token}"
+    }
+    graph_url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root/children"
+    response = requests.get(graph_url, headers=headers)
+
+    if response.status_code == 200:
+        items = response.json().get('value', [])
+        return items
+    else:
+        st.error("Failed to retrieve items from SharePoint.")
+        return []
+
+def get_organization_name(email):
+    domain = email.split('@')[-1]
+    organization = domain.split('.')[0]
+    return organization
+
+def correct_sharepoint_link(user_link, organization_name):
+    pattern = rf"https://{organization_name}\.sharepoint\.com/sites/.*"
+    if re.match(pattern, user_link):
+        return user_link
+    else:
+        parsed_url = re.sub(r"https://.*\.sharepoint\.com", f"https://{organization_name}.sharepoint.com", user_link)
+        return parsed_url
+
+def extract_sharepoint_ids(sharepoint_url):
+    # Assuming the URL is of the format "https://<organization>.sharepoint.com/sites/<site_name>/..."
+    parsed_url = urlparse(sharepoint_url)
+    path_parts = parsed_url.path.split('/')
+    site_id = path_parts[2]  # Extract site_id from the URL
+    file_id = path_parts[-1]  # Extract file_id from the URL
+    return site_id, file_id
+
+# --- MAIN APP ---
+def main():
+    st.set_page_config(page_title="SharePoint Video Access via Microsoft SSO", page_icon="🎥")
+    st.title("🎥 Access SharePoint Videos with Microsoft Office Login")
+
+    query_params = st.experimental_get_query_params()
+
+    if "code" not in query_params:
+        auth_url = build_auth_url()
+        st.markdown(f"[Login with Microsoft]({auth_url})", unsafe_allow_html=True)
+    else:
+        code = query_params["code"][0]
+        token_response = get_token_from_code(code)
+        access_token = token_response.get("access_token")
+
+        if access_token:
+            user_info = get_user_info(access_token)
+            user_email = user_info.get("mail") or user_info.get("userPrincipalName")
+            st.success(f"Logged in as: {user_email}")
+
+            organization_name = get_organization_name(user_email)
+            st.info(f"Detected Organization: **{organization_name}**")
+
+            st.subheader("🔗 Enter Your SharePoint Video Link")
+            user_link = st.text_input("Paste your SharePoint video link here:")
+
+            if user_link:
+                corrected_link = correct_sharepoint_link(user_link, organization_name)
+                st.write(f"✅ Corrected SharePoint Link: {corrected_link}")
+
+                # Extract Site ID and File ID from the SharePoint URL
+                site_id, file_id = extract_sharepoint_ids(corrected_link)
+
+                # List all items in the SharePoint site
+                items = get_sharepoint_items(site_id, access_token)
+                
+                if items:
+                    st.subheader("📂 SharePoint Files and Folders")
+                    for item in items:
+                        st.write(f"- **{item['name']}** (Type: {item['file']['mimeType'] if 'file' in item else 'Folder'})")
+                        if 'file' in item:
+                            st.markdown(f"[Download File]({item['@microsoft.graph.downloadUrl']})")
+                else:
+                    st.error("No items found in SharePoint.")
+
         else:
-            raise Exception(f"Failed to download SharePoint video. Status code: {response.status_code}")
-    except Exception as e:
-        raise Exception(f"Error downloading SharePoint video: {str(e)}")
+            st.error("Failed to get Access Token from Microsoft.")
 
-def upload_video(filepath):
-    task = client.task.create(index_id=index_id, file=filepath)
-    return task.id
-
-def wait_for_indexing(task_id):
-    while True:
-        task = client.task.retrieve(task_id)
-        if task.status == "ready":
-            break
-        time.sleep(10)
-
-def summarize_video(task_id):
-    task = client.task.retrieve(task_id)
-    if task.status != "ready":
-        raise Exception("Video not ready for summarization.")
-    response = client.generate.summarize(
-        video_id=task.video_id,
-        type="summary",
-        prompt="Generate summary in document format with timestamps."
-    )
-    return response.data.summary if hasattr(response, 'data') else response.summary
-
-def store_data_in_snowflake(video_id, video_link, summary):
-    conn = get_snowflake_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS VIDEO_SUMMARY (
-                VIDEO_ID VARCHAR PRIMARY KEY,
-                YOUTUBE_LINK STRING,
-                SUMMARY STRING,
-                CREATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
-                IS_ACTIVE BOOLEAN DEFAULT TRUE
-            )
-        """)
-        cursor.execute("""
-            MERGE INTO VIDEO_SUMMARY AS target
-            USING (SELECT %(video_id)s AS VIDEO_ID) AS source
-            ON target.VIDEO_ID = source.VIDEO_ID
-            WHEN NOT MATCHED THEN
-              INSERT (VIDEO_ID, YOUTUBE_LINK, SUMMARY, CREATED_AT, IS_ACTIVE)
-              VALUES (%(video_id)s, %(video_link)s, %(summary)s, CURRENT_TIMESTAMP(), TRUE)
-        """, {
-            'video_id': video_id,
-            'video_link': video_link,
-            'summary': summary
-        })
-    finally:
-        cursor.close()
-        conn.close()
-
-# === Streamlit UI ===
-st.title("🎥 Video Summarization App")
-
-source_type = st.selectbox("Select Video Source:", ["YouTube", "SharePoint"])
-video_link = st.text_input("Enter the Video Link:")
-
-if st.button("Process Video") and video_link:
-    st.session_state.processing = True
-    try:
-        video_id = str(uuid.uuid4())[:8]
-
-        # Download based on selection
-        if source_type == "YouTube":
-            st.info("Downloading YouTube video...")
-            video_path = download_youtube_video(video_link, video_id)
-        else:
-            st.info("Downloading SharePoint video...")
-            video_path = download_sharepoint_video(video_link, video_id)
-
-        st.success("Video downloaded successfully!")
-
-        st.info("Uploading video to TwelveLabs...")
-        task_id = upload_video(video_path)
-        wait_for_indexing(task_id)
-
-        st.info("Generating summary...")
-        summary = summarize_video(task_id)
-
-        st.success("Summary generated!")
-
-        # Save results
-        st.session_state.current_video_id = video_id
-        st.session_state.current_summary = summary
-
-        # Display
-        st.subheader("Video Summary:")
-        st.write(summary)
-
-        # Store in Snowflake
-        store_data_in_snowflake(video_id, video_link, summary)
-        st.success("Summary stored in Snowflake database!")
-
-    except Exception as e:
-        st.error(f"An error occurred: {str(e)}")
-    finally:
-        st.session_state.processing = False
+if __name__ == "__main__":
+    main()
