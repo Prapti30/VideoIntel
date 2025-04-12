@@ -10,7 +10,7 @@ REDIRECT_URI = "https://video-intel-cg.streamlit.app/"  # Same as your app's red
 AUTHORITY = "https://login.microsoftonline.com/common"
 AUTH_ENDPOINT = "/oauth2/v2.0/authorize"
 TOKEN_ENDPOINT = "/oauth2/v2.0/token"
-SCOPE = ["https://graph.microsoft.com/.default", "User.Read", "Sites.Read.All"]
+SCOPE = ["User.Read", "Sites.Read.All"]
 
 def build_auth_url():
     params = {
