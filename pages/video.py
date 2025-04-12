@@ -1,11 +1,11 @@
+# === Imports ===
 import requests
 import streamlit as st
 import subprocess
 import time
-import uuid
 from urllib.parse import urlparse, parse_qs
 from twelvelabs import TwelveLabs
-from snowflake_connect import get_snowflake_connection
+from snowflake_connect import get_snowflake_connection  # <-- Make sure this is correct
 from google.generativeai import configure, GenerativeModel
 
 # === API Keys ===
@@ -13,28 +13,26 @@ api_key = "tlk_1CPRENS1M7PJ1G2HTQ1QN2JHC2RS"
 index_id = "67f69df0f42e97f625940bcd"
 client = TwelveLabs(api_key=api_key)
 
-configure(api_key="AIzaSyD5avNnryzA6Y-sDTRS_vcj55O91Xlcq5o") 
+configure(api_key="AIzaSyD5avNnryzA6Y-sDTRS_vcj55O91Xlcq5o")
 gemini_model = GenerativeModel("gemini-1.5-pro")
 
-# === Session States ===
+# === Session State Initialization ===
 if 'processing' not in st.session_state:
     st.session_state.processing = False
 if 'results' not in st.session_state:
     st.session_state.results = []
 if 'chat_history' not in st.session_state:
-    st.session_state.chat_history = {}
-if 'current_video_id' not in st.session_state:
-    st.session_state.current_video_id = None
+    st.session_state.chat_history = []
 if 'current_summary' not in st.session_state:
     st.session_state.current_summary = None
 
-# === Core Functions ===
+# === Utility Functions ===
 def get_video_id(url):
     parsed_url = urlparse(url)
     query = parse_qs(parsed_url.query)
-    if 'v' in query:  # For YouTube URLs
+    if 'v' in query:  # YouTube
         return query['v'][0]
-    return parsed_url.path.split('/')[-1]  # For SharePoint or other links
+    return parsed_url.path.split('/')[-1]
 
 def download_youtube_video(url, video_id):
     output_path = f"video_{video_id}.mp4"
@@ -42,104 +40,105 @@ def download_youtube_video(url, video_id):
     subprocess.run(command, shell=True, check=True)
     return output_path
 
-def download_sharepoint_video(url, token):
-    try:
-        sharepoint_path = url.split("/personal/")[1]
-        user_name, relative_path = sharepoint_path.split("/", 1)
-        user_email = user_name.replace("_", ".").replace(".cginfinity.com", "@cginfinity.com")
-        st.write(f"User Email: {user_email}")
+def upload_video(filepath):
+    task = client.task.create(index_id=index_id, file=filepath)
+    return task.id
 
-        file_path = "/".join(relative_path.split("/")[1:])
-        st.write(f"File Path: {file_path}")
+def wait_for_indexing(task_id):
+    while True:
+        task = client.task.retrieve(task_id)
+        if task.status == "ready":
+            break
+        time.sleep(5)
 
-        site_resp = requests.get(
-            f"https://graph.microsoft.com/v1.0/users/{user_email}/drive/root",
-            headers={"Authorization": f"Bearer {token}"}
-        )
+def search_video(query, video_id):
+    search = client.search.query(index_id=index_id, query=query)
+    return search.matches
 
-        if site_resp.status_code != 200:
-            raise Exception(f"Failed to retrieve OneDrive site. Error: {site_resp.json()}")
+def insert_summary_to_snowflake(video_id, video_url, summary_text):
+    conn = get_snowflake_connection()
+    cursor = conn.cursor()
+    insert_query = """
+    INSERT INTO video_summaries (video_id, video_url, summary_text)
+    VALUES (%s, %s, %s)
+    """
+    cursor.execute(insert_query, (video_id, video_url, summary_text))
+    conn.commit()
+    cursor.close()
+    conn.close()
 
-        drive_id = site_resp.json().get("parentReference", {}).get("driveId")
-        if not drive_id:
-            raise Exception("Could not retrieve drive ID.")
+def generate_summary(matches):
+    if matches:
+        highlights = "\n".join([match.text for match in matches])
+        response = gemini_model.generate_content(f"Summarize this content: {highlights}")
+        return response.text
+    else:
+        return "No relevant matches found."
 
-        item_resp = requests.get(
-            f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{file_path}",
-            headers={"Authorization": f"Bearer {token}"}
-        )
+def chat_with_summary(user_input, context_summary):
+    prompt = f"Context: {context_summary}\n\nUser: {user_input}\nBot:"
+    response = gemini_model.generate_content(prompt)
+    return response.text
 
-        if item_resp.status_code != 200:
-            raise Exception(f"File not found. Error: {item_resp.json()}")
+# === Main Streamlit App ===
+st.title("📹 Video Summarizer + Chatbot Assistant")
 
-        item_id = item_resp.json().get("id")
-
-        content_resp = requests.get(
-            f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{item_id}/content",
-            headers={"Authorization": f"Bearer {token}"},
-            stream=True
-        )
-
-        if content_resp.status_code == 200:
-            output_path = "temp_video.mp4"
-            with open(output_path, "wb") as f:
-                for chunk in content_resp.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            return output_path
-        else:
-            raise Exception(f"Download failed. Status: {content_resp.status_code}")
-    except Exception as e:
-        raise Exception(f"Error downloading SharePoint video: {str(e)}")
-
-# === DATABASE FUNCTION - CORRECTED ===
-def save_summary_to_database(video_id, summary):
-    try:
-        conn = get_snowflake_connection()
-        cursor = conn.cursor()
-        # Create table if not exists
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS VIDEO_SUMMARIES (
-                VIDEO_ID STRING PRIMARY KEY,
-                SUMMARY TEXT
-            )
-        """)
-        # Insert or Update the record
-        cursor.execute("""
-            MERGE INTO VIDEO_SUMMARIES AS target
-            USING (SELECT %s AS VIDEO_ID, %s AS SUMMARY) AS source
-            ON target.VIDEO_ID = source.VIDEO_ID
-            WHEN MATCHED THEN UPDATE SET SUMMARY = source.SUMMARY
-            WHEN NOT MATCHED THEN INSERT (VIDEO_ID, SUMMARY) VALUES (source.VIDEO_ID, source.SUMMARY)
-        """, (video_id, summary))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        st.success("Summary saved to database successfully!")
-    except Exception as e:
-        st.error(f"Database Error: {str(e)}")
-
-# === Example Usage after you generate summary ===
-def process_summary_and_store(url):
-    video_id = get_video_id(url)
-    st.session_state.current_video_id = video_id
-
-    # Assume we generate a summary here, hardcoding for example
-    generated_summary = "This is a sample summary generated by AI."
-
-    # Save summary to database
-    save_summary_to_database(video_id, generated_summary)
-
-    # Update session state
-    st.session_state.current_summary = generated_summary
-    st.success("Processing complete.")
-
-# === Streamlit UI ===
-st.title("Video Summarizer and ChatBot")
-
-video_url = st.text_input("Enter YouTube or SharePoint Video URL:")
+video_url = st.text_input("Enter YouTube or SharePoint Video URL")
 
 if st.button("Process Video"):
-    if video_url:
-        process_summary_and_store(video_url)
+    if not video_url:
+        st.error("Please provide a video URL.")
     else:
-        st.warning("Please enter a valid URL!")
+        st.session_state.processing = True
+        try:
+            video_id = get_video_id(video_url)
+            st.info("Downloading video...")
+            filepath = download_youtube_video(video_url, video_id)
+
+            st.success("Video downloaded. Uploading to TwelveLabs...")
+            task_id = upload_video(filepath)
+
+            st.info("Indexing video, please wait...")
+            wait_for_indexing(task_id)
+
+            st.success("Video indexed. Searching for summary points...")
+            matches = search_video("summarize the video", video_id)
+
+            st.session_state.current_summary = generate_summary(matches)
+            st.success("Summary generated!")
+
+            st.write("### Summary")
+            st.write(st.session_state.current_summary)
+
+            # Insert into Snowflake
+            insert_summary_to_snowflake(video_id, video_url, st.session_state.current_summary)
+            st.success("Summary saved to database! ✅")
+
+        except Exception as e:
+            st.error(f"Error: {str(e)}")
+        finally:
+            st.session_state.processing = False
+
+# === Chatbot Section ===
+st.divider()
+st.header("💬 Chat with the Video Summary")
+
+user_query = st.text_input("Ask something about the video...")
+
+if st.button("Ask"):
+    if not st.session_state.current_summary:
+        st.error("First process a video and generate summary!")
+    elif not user_query:
+        st.error("Please type your question.")
+    else:
+        bot_response = chat_with_summary(user_query, st.session_state.current_summary)
+        st.session_state.chat_history.append(("You", user_query))
+        st.session_state.chat_history.append(("Bot", bot_response))
+
+# Display chat history
+for speaker, text in st.session_state.chat_history:
+    if speaker == "You":
+        st.markdown(f"**You:** {text}")
+    else:
+        st.markdown(f"**Bot:** {text}")
+
