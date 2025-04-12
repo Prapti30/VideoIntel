@@ -25,6 +25,7 @@ def log_screen():
             st.success("Login successful!")
 
 def video_data(video_url,token):
+    st.write(token)
     if video_url and token:
         st.write(token)
     # Convert SharePoint URL to Microsoft Graph API URL
@@ -78,13 +79,13 @@ def main():
 
         # If token is received, store and use it
         if "access_token" in result:
-            access_token = result["access_token"]
+            st.session_state.access_token = result["access_token"]
         else:
             st.write("Error: Could not acquire token.")
             st.write(result)
         st.title("Microsoft Video Viewer")
         video_url = st.text_input("Paste SharePoint Video URL")
-        video_data(video_url,access_token)
+        video_data(video_url,st.session_state.access_token)
     
     #     credential = ClientSecretCredential(
     #     tenant_id=tenant_id,
