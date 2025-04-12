@@ -20,7 +20,7 @@ def video_data(video_url, token):
             return
         
         site_id = site_resp.json().get("id")
-        st.wrtie(site_id)
+        st.write(site_id)
 
         # Get file ID using Microsoft Graph API
         item_resp = requests.get(
