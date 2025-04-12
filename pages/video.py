@@ -22,19 +22,19 @@ if 'processing' not in st.session_state:
 if 'results' not in st.session_state:
     st.session_state.results = []
 if 'chat_history' not in st.session_state:
-    st.session_state.chat_history = []
+    st.session_state.chat_history = {}
 if 'current_video_id' not in st.session_state:
     st.session_state.current_video_id = None
 if 'current_summary' not in st.session_state:
     st.session_state.current_summary = None
 
 # === Core Functions ===
-def generate_video_id(url):
-    """Generate consistent video ID from any URL"""
-    parsed = urlparse(url)
-    if "youtube.com" in parsed.netloc:
-        return parse_qs(parsed.query).get('v', [parsed.path.split('/')[-1]])[0]
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, url))  # For non-YouTube URLs
+def get_video_id(url):
+    parsed_url = urlparse(url)
+    query = parse_qs(parsed_url.query)
+    if 'v' in query:  # For YouTube URLs
+        return query['v'][0]
+    return parsed_url.path.split('/')[-1]  # For SharePoint or other links
 
 def download_youtube_video(url, video_id):
     output_path = f"video_{video_id}.mp4"
@@ -44,160 +44,212 @@ def download_youtube_video(url, video_id):
 
 def download_sharepoint_video(url, token):
     try:
+        # Extract user email and relative file path from SharePoint URL
         sharepoint_path = url.split("/personal/")[1]
         user_name, relative_path = sharepoint_path.split("/", 1)
         user_email = user_name.replace("_", ".").replace(".cginfinity.com", "@cginfinity.com")
-        
-        # Extract path after Documents
+        st.write(f"User Email: {user_email}")
+
+        # Extract relative file path starting after "/Documents/"
         file_path = "/".join(relative_path.split("/")[1:])
-        
-        # Get drive ID
+        st.write(f"File Path: {file_path}")
+
+        # Get user's OneDrive root folder
         site_resp = requests.get(
             f"https://graph.microsoft.com/v1.0/users/{user_email}/drive/root",
             headers={"Authorization": f"Bearer {token}"}
         )
-        site_resp.raise_for_status()
-        
-        drive_id = site_resp.json()["parentReference"]["driveId"]
-        
-        # Get file metadata
+
+        if site_resp.status_code != 200:
+            raise Exception(f"Failed to retrieve OneDrive site. Error: {site_resp.json()}")
+
+        # Extract drive ID
+        drive_id = site_resp.json().get("parentReference", {}).get("driveId")
+        if not drive_id:
+            raise Exception("Could not retrieve drive ID.")
+
+        # Get file metadata using drive ID and relative file path
         item_resp = requests.get(
             f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{file_path}",
             headers={"Authorization": f"Bearer {token}"}
         )
-        item_resp.raise_for_status()
-        
-        # Download file
-        item_id = item_resp.json()["id"]
+
+        if item_resp.status_code != 200:
+            raise Exception(f"File not found. Error: {item_resp.json()}")
+
+        item_id = item_resp.json().get("id")
+
+        # Download the file content
         content_resp = requests.get(
             f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{item_id}/content",
             headers={"Authorization": f"Bearer {token}"},
             stream=True
         )
-        content_resp.raise_for_status()
-        
-        output_path = f"sp_video_{item_id}.mp4"
-        with open(output_path, "wb") as f:
-            for chunk in content_resp.iter_content(chunk_size=8192):
-                f.write(chunk)
-        return output_path
-        
-    except Exception as e:
-        st.error(f"SharePoint download failed: {str(e)}")
-        return None
 
-def get_summary_from_db(video_id):
-    conn = get_snowflake_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT SUMMARY FROM VIDEO_SUMMARY 
-            WHERE VIDEO_ID = %s
-            LIMIT 1
-        """, (video_id,))
-        result = cursor.fetchone()
-        return result[0] if result else None
+        if content_resp.status_code == 200:
+            output_path = "temp_video.mp4"
+            with open(output_path, "wb") as f:
+                for chunk in content_resp.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            return output_path
+        else:
+            raise Exception(f"Download failed. Status: {content_resp.status_code}")
     except Exception as e:
-        st.error(f"Database error: {str(e)}")
-        return None
+        raise Exception(f"Error downloading SharePoint video: {str(e)}")
+
+def upload_video(filepath):
+    task = client.task.create(index_id=index_id, file=filepath)
+    return task.id
+
+def wait_for_indexing(task_id):
+    while True:
+        task = client.task.retrieve(task_id)
+        if task.status == "ready":
+            break
+        time.sleep(10)
+
+def summarize_video(task_id):
+    task = client.task.retrieve(task_id)
+    if task.status != "ready":
+        raise Exception("Video not ready for summarization.")
+    response = client.generate.summarize(
+        video_id=task.video_id,
+        type="summary",
+        prompt="Generate summary in document format with timestamps."
+    )
+    return response.data.summary if hasattr(response, 'data') else response.summary
+
+def store_data_in_snowflake(video_id, video_link, summary):
+    conn = get_snowflake_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS VIDEO_SUMMARY (
+                VIDEO_ID VARCHAR PRIMARY KEY,
+                YOUTUBE_LINK STRING,
+                SUMMARY STRING,
+                CREATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+                IS_ACTIVE BOOLEAN DEFAULT TRUE
+            )
+        """)
+        cursor.execute("""
+            INSERT INTO VIDEO_SUMMARY (VIDEO_ID, YOUTUBE_LINK, SUMMARY, CREATED_AT, IS_ACTIVE)
+            VALUES (%s, %s, %s, CURRENT_TIMESTAMP(), TRUE)
+            ON CONFLICT (VIDEO_ID) DO NOTHING
+        """, (video_id, video_link, summary))
+    except Exception as e:
+        raise Exception(f"Database error: {str(e)}")
     finally:
+        cursor.close()
         conn.close()
 
-def store_summary(video_id, video_link, summary):
+def get_summary_by_link(video_link):
     conn = get_snowflake_connection()
+    cursor = conn.cursor()
     try:
-        cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO VIDEO_SUMMARY (VIDEO_ID, YOUTUBE_LINK, SUMMARY)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (VIDEO_ID) DO UPDATE 
-            SET SUMMARY = EXCLUDED.SUMMARY
-        """, (video_id, video_link, summary))
-        conn.commit()
+            SELECT VIDEO_ID, SUMMARY
+            FROM VIDEO_SUMMARY
+            WHERE YOUTUBE_LINK = %s
+            LIMIT 1
+        """, (video_link,))
+        result = cursor.fetchone()
+        if result:
+            return result[0], result[1]  # video_id, summary
+        return None, None
     except Exception as e:
-        st.error(f"Database error: {str(e)}")
+        raise Exception(f"Query failed: {str(e)}")
     finally:
+        cursor.close()
         conn.close()
 
 # === UI Setup ===
 st.set_page_config(page_title="🎬 VideoIntel AI", layout="wide")
 st.title("🎬 VideoIntel AI Processor & Chatbot")
 
-# === Video Processing ===
-video_link = st.text_input("Paste Video URL here 👇")
-token = st.session_state.get("access_token")
+# === Two Columns Layout ===
+col1, col2 = st.columns(2)
 
-if video_link:
-    video_id = generate_video_id(video_link)
-    existing_summary = get_summary_from_db(video_id)
+with col1:
+    st.subheader("Analyze YouTube/SharePoint Videos + Gemini Q&A")
+
+    # Input Video Link
+    video_link = st.text_input("Paste Video URL here 👇")
     
-    if existing_summary:
-        st.session_state.current_summary = existing_summary
-        st.session_state.current_video_id = video_id
-        st.success("Loaded existing summary from database!")
-    
-    if st.button("Analyze Video") and not existing_summary:
-        try:
-            st.session_state.processing = True
-            
-            # Download video based on platform
-            if "youtube.com" in video_link or "youtu.be" in video_link:
-                filepath = download_youtube_video(video_link, video_id)
-            elif "sharepoint.com" in video_link:
-                if not token:
-                    raise Exception("Authentication required for SharePoint videos")
-                filepath = download_sharepoint_video(video_link, token)
-                if not filepath:
-                    st.write("no file found")
-            else:
-                raise Exception("Unsupported video platform")
-            
-            # Process video
-            task_id = client.task.create(index_id=index_id, file=filepath).id
-            while client.task.retrieve(task_id).status != "ready":
-                time.sleep(5)
-            
-            summary = client.generate.summarize(
-                video_id=client.task.retrieve(task_id).video_id,
-                type="summary",
-                prompt="Generate summary with timestamps"
-            ).data.summary
-            
-            store_summary(video_id, video_link, summary)
-            st.session_state.current_summary = summary
+    token = st.session_state.get("access_token")  # Replace with actual token retrieval logic
+
+    if video_link:
+        video_id, summary = get_summary_by_link(video_link)
+
+        if video_id and summary:
+            st.success("Video summary already available!")
             st.session_state.current_video_id = video_id
-            st.success("Analysis complete!")
-            
-        except Exception as e:
-            st.error(f"Processing failed: {str(e)}")
-        finally:
-            st.session_state.processing = False
+            st.session_state.current_summary = summary
+        else:
+            if st.button("Analyze Video"):
+                try:
+                    st.session_state.processing = True
 
-# === Chat Interface ===
-if st.session_state.current_summary:
-    st.subheader("📄 Video Summary")
-    st.write(st.session_state.current_summary)
-    
-    st.subheader("💬 Chat with Video")
-    user_question = st.text_input("Ask about the video...")
-    
-    if user_question:
-        prompt = f"""
-        Video Summary: {st.session_state.current_summary}
-        Question: {user_question}
-        Answer clearly with timestamps where relevant:
-        """
-        
-        response = gemini_model.generate_content(prompt)
-        if response.text:
-            st.session_state.chat_history.append({
-                "question": user_question,
-                "answer": response.text
-            })
-    
-    if st.session_state.chat_history:
-        st.subheader("Chat History")
-        for chat in st.session_state.chat_history:
-            st.markdown(f"**Q:** {chat['question']}")
-            st.markdown(f"**A:** {chat['answer']}")
-            st.divider()
+                    # Determine platform (YouTube or SharePoint) and download video accordingly
+                    video_id = get_video_id(video_link)
+                    filepath = None
+
+                    if "youtube.com" in video_link or "youtu.be" in video_link:
+                        with st.spinner("Downloading YouTube video..."):
+                            filepath = download_youtube_video(video_link, video_id)
+                    elif "sharepoint.com" in video_link and token:
+                        with st.spinner("Downloading SharePoint video..."):
+                            filepath = download_sharepoint_video(video_link, token)
+
+                    with st.spinner("Uploading video to TwelveLabs..."):
+                        task_id = upload_video(filepath)
+
+                    with st.spinner("Indexing video..."):
+                        wait_for_indexing(task_id)
+
+                    with st.spinner("Summarizing video..."):
+                        summary = summarize_video(task_id)
+
+                    st.session_state.current_video_id = video_id
+                    st.session_state.current_summary = summary
+
+                    with st.spinner("Saving summary to Snowflake..."):
+                        store_data_in_snowflake(video_id, video_link, summary)
+
+                    st.success("Video processed and summary saved!")
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
+                finally:
+                    st.session_state.processing = False
+
+    if st.session_state.current_summary:
+        st.subheader("📄 Video Summary")
+        st.write(st.session_state.current_summary)
+
+with col2:
+    st.subheader("Ask Questions about the Video")
+
+    if st.session_state.current_summary:
+        user_question = st.text_input("Ask your question here...")
+
+        if user_question:
+            chat_input = {
+                "role": "user",
+                "parts": [f"You are an intelligent video assistant. Based on the following summary, answer the user's question clearly with timestamps if possible.: {st.session_state.current_summary}\n\nQuestion: {user_question}"]
+            }
+
+            with st.spinner("Thinking..."):
+                response = gemini_model.generate_content([chat_input])
+
+            if hasattr(response, 'text'):
+                st.session_state.chat_history[user_question] = response.text
+                st.success("Answer generated!")
+            else:
+                st.error("Failed to get response from Gemini.")
+
+if st.session_state.chat_history:
+        st.subheader("💬 Chat History")
+        for question, answer in st.session_state.chat_history.items():
+            st.markdown(f"**Q:** {question}")
+            st.markdown(f"**A:** {answer}")
+            st.markdown("---")
