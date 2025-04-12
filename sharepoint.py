@@ -11,7 +11,7 @@ redirect_uri = "https://video-intel-cg.streamlit.app/"
 
 authorize_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize"
 token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
-scope = "User.Read offline_access"  # Updated scope for SharePoint access
+scope = "https://graph.microsoft.com/.default"  # Updated scope for SharePoint access
 
 # --- FUNCTIONS ---
 def build_auth_url():
