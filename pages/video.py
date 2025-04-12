@@ -135,7 +135,6 @@ def store_data_in_snowflake(video_id, video_link, summary):
         cursor.execute("""
             INSERT INTO VIDEO_SUMMARY (VIDEO_ID, YOUTUBE_LINK, SUMMARY, CREATED_AT, IS_ACTIVE)
             VALUES (%s, %s, %s, CURRENT_TIMESTAMP(), TRUE)
-            ON CONFLICT (VIDEO_ID) DO NOTHING
         """, (video_id, video_link, summary))
     except Exception as e:
         raise Exception(f"Database error: {str(e)}")
