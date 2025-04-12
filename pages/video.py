@@ -1,156 +1,167 @@
-# app.py
-
-import streamlit as st
 import requests
-import uuid
+import streamlit as st
+import subprocess
 import time
-import os
+import uuid
+from urllib.parse import urlparse, parse_qs
 from twelvelabs import TwelveLabs
-from snowflake.connector import connect
+from snowflake_connect import get_snowflake_connection
 from google.generativeai import configure, GenerativeModel
 
-# ==== API Keys & Configurations ====
-twelve_api_key = "YOUR_TWELVE_LABS_API_KEY"
-index_id = "YOUR_TWELVE_LABS_INDEX_ID"
-gemini_api_key = "YOUR_GEMINI_API_KEY"
+# === API Keys ===
+api_key = "tlk_1CPRENS1M7PJ1G2HTQ1QN2JHC2RS"
+index_id = "67f69df0f42e97f625940bcd"
+client = TwelveLabs(api_key=api_key)
 
-snowflake_user = "YOUR_SNOWFLAKE_USER"
-snowflake_password = "YOUR_SNOWFLAKE_PASSWORD"
-snowflake_account = "YOUR_SNOWFLAKE_ACCOUNT"
-snowflake_database = "YOUR_DATABASE"
-snowflake_schema = "YOUR_SCHEMA"
-snowflake_warehouse = "YOUR_WAREHOUSE"
+configure(api_key="AIzaSyD5avNnryzA6Y-sDTRS_vcj55O91Xlcq5o") 
+gemini_model = GenerativeModel("gemini-1.5-pro")
 
-# ==== Initialize Clients ====
-client = TwelveLabs(api_key=twelve_api_key)
-configure(api_key=gemini_api_key)
-gemini_model = GenerativeModel(model_name="gemini-1.5-pro")
-
-# ==== Session State Initialization ====
+# === Session States ===
 if 'processing' not in st.session_state:
     st.session_state.processing = False
 if 'results' not in st.session_state:
     st.session_state.results = []
 if 'chat_history' not in st.session_state:
-    st.session_state.chat_history = []
+    st.session_state.chat_history = {}
 if 'current_video_id' not in st.session_state:
     st.session_state.current_video_id = None
 if 'current_summary' not in st.session_state:
     st.session_state.current_summary = None
 
-# ==== Functions ====
+# === Core Functions ===
+def get_video_id(url):
+    parsed_url = urlparse(url)
+    query = parse_qs(parsed_url.query)
+    if 'v' in query:  # For YouTube URLs
+        return query['v'][0]
+    return parsed_url.path.split('/')[-1]  # For SharePoint or other links
 
-def download_sharepoint_video_direct(url):
-    """Download video from SharePoint if publicly accessible"""
+def download_youtube_video(url, video_id):
+    output_path = f"video_{video_id}.mp4"
+    command = f"yt-dlp -f best -o {output_path} {url}"
+    subprocess.run(command, shell=True, check=True)
+    return output_path
+
+def download_sharepoint_video(url, token):
     try:
-        temp_filename = f"temp_video_{uuid.uuid4()}.mp4"
-        with requests.get(url, stream=True) as response:
-            response.raise_for_status()
-            with open(temp_filename, "wb") as f:
-                for chunk in response.iter_content(chunk_size=8192):
+        sharepoint_path = url.split("/personal/")[1]
+        user_name, relative_path = sharepoint_path.split("/", 1)
+        user_email = user_name.replace("_", ".").replace(".cginfinity.com", "@cginfinity.com")
+        file_path = "/".join(relative_path.split("/")[1:])
+
+        site_resp = requests.get(
+            f"https://graph.microsoft.com/v1.0/users/{user_email}/drive/root",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+
+        if site_resp.status_code != 200:
+            raise Exception(f"Failed to retrieve OneDrive site. Error: {site_resp.json()}")
+
+        drive_id = site_resp.json().get("parentReference", {}).get("driveId")
+        if not drive_id:
+            raise Exception("Could not retrieve drive ID.")
+
+        item_resp = requests.get(
+            f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{file_path}",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+
+        if item_resp.status_code != 200:
+            raise Exception(f"File not found. Error: {item_resp.json()}")
+
+        item_id = item_resp.json().get("id")
+
+        content_resp = requests.get(
+            f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{item_id}/content",
+            headers={"Authorization": f"Bearer {token}"},
+            stream=True
+        )
+
+        if content_resp.status_code == 200:
+            output_path = "temp_video.mp4"
+            with open(output_path, "wb") as f:
+                for chunk in content_resp.iter_content(chunk_size=8192):
                     f.write(chunk)
-        return temp_filename
+            return output_path
+        else:
+            raise Exception(f"Download failed. Status: {content_resp.status_code}")
     except Exception as e:
-        st.error(f"Failed to download video: {e}")
-        return None
+        raise Exception(f"Error downloading SharePoint video: {str(e)}")
 
 def upload_video(filepath):
-    """Upload video to TwelveLabs"""
-    try:
-        task = client.task.create(index_id=index_id, file=filepath)
-        return task.id
-    except Exception as e:
-        st.error(f"Failed to upload video: {e}")
-        return None
+    task = client.task.create(index_id=index_id, file=filepath)
+    return task.id
 
-def wait_for_indexing(task_id):
-    """Wait for TwelveLabs to finish indexing"""
-    st.info("Waiting for TwelveLabs to index the video...")
+def wait_for_task(task_id):
     while True:
         task = client.task.retrieve(task_id)
-        if task.status == "ready":
-            st.success("Video indexing completed.")
+        if task.status == "completed":
             return task
         elif task.status == "failed":
-            st.error("Video indexing failed.")
-            return None
+            raise Exception("Task failed")
         time.sleep(5)
 
-def get_snowflake_connection():
-    """Connect to Snowflake"""
-    conn = connect(
-        user=snowflake_user,
-        password=snowflake_password,
-        account=snowflake_account,
-        warehouse=snowflake_warehouse,
-        database=snowflake_database,
-        schema=snowflake_schema,
-    )
-    return conn
+def generate_summary(captions):
+    input_text = f"Summarize the following video transcript:\n\n{captions}"
+    response = gemini_model.generate_content(input_text)
+    return response.text
 
-def store_video_info_in_snowflake(video_id, task_id, video_name):
-    """Store video info in Snowflake"""
+def save_summary_to_snowflake(video_id, summary_text):
     try:
         conn = get_snowflake_connection()
         cursor = conn.cursor()
-        cursor.execute(f"""
-            CREATE TABLE IF NOT EXISTS uploaded_videos (
-                video_id STRING,
-                task_id STRING,
-                video_name STRING,
-                uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS video_summaries (
+                video_id VARCHAR,
+                summary TEXT
             )
         """)
+        
         cursor.execute("""
-            INSERT INTO uploaded_videos (video_id, task_id, video_name)
-            VALUES (%s, %s, %s)
-        """, (video_id, task_id, video_name))
+            INSERT INTO video_summaries (video_id, summary)
+            VALUES (%s, %s)
+        """, (video_id, summary_text))
+        
         conn.commit()
-        st.success("Video info stored in Snowflake.")
-    except Exception as e:
-        st.error(f"Failed to store video info in Snowflake: {e}")
-    finally:
         cursor.close()
         conn.close()
+    except Exception as e:
+        st.error(f"Error saving summary to Snowflake: {str(e)}")
 
-# ==== Streamlit UI ====
+def process_video(url, token=None):
+    video_id = get_video_id(url)
+    st.session_state.current_video_id = video_id
 
-st.title("📹 SharePoint Video Processor")
+    if "youtube.com" in url or "youtu.be" in url:
+        filepath = download_youtube_video(url, video_id)
+    else:
+        filepath = download_sharepoint_video(url, token)
 
-sharepoint_url = st.text_input("Enter SharePoint Video URL:")
+    task_id = upload_video(filepath)
+    wait_for_task(task_id)
+
+    captions = client.caption.search(index_id=index_id, query="*", filters={"video_ids": [task_id]})
+    all_text = " ".join([caption.text for caption in captions.matches])
+
+    summary = generate_summary(all_text)
+    st.session_state.current_summary = summary
+
+    save_summary_to_snowflake(video_id, summary)
+
+    st.success("Video processed and summary saved!")
+
+# === Streamlit UI ===
+st.title("Video Summarizer and Storage App")
+
+video_url = st.text_input("Enter YouTube or SharePoint video URL:")
+sharepoint_token = st.text_input("Enter SharePoint OAuth Token (if using SharePoint):", type="password")
 
 if st.button("Process Video"):
-    if not sharepoint_url:
-        st.warning("⚠️ Please enter a valid SharePoint URL.")
+    if not video_url:
+        st.error("Please provide a video URL.")
     else:
-        st.session_state.processing = True
-
-        filepath = download_sharepoint_video_direct(sharepoint_url)
-
-        if filepath:
-            st.success("✅ Video downloaded successfully!")
-
-            task_id = upload_video(filepath)
-
-            if task_id:
-                task = wait_for_indexing(task_id)
-
-                if task:
-                    video_id = task.metadata.video_id
-                    video_name = os.path.basename(filepath)
-
-                    st.session_state.current_video_id = video_id
-                    store_video_info_in_snowflake(video_id, task_id, video_name)
-
-                    st.balloons()
-                    st.success(f"🎉 Video '{video_name}' processed and stored successfully!")
-                    
-                    # Clean up downloaded video
-                    if os.path.exists(filepath):
-                        os.remove(filepath)
-                else:
-                    st.error("❌ Video processing failed during indexing.")
-            else:
-                st.error("❌ Failed to upload video to TwelveLabs.")
-        else:
-            st.error("❌ Failed to download video from SharePoint.")
+        try:
+            process_video(video_url, sharepoint_token)
+        except Exception as e:
+            st.error(f"Error: {str(e)}")
