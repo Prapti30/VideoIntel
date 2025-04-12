@@ -2,10 +2,8 @@ import streamlit as st
 from msal_streamlit_authentication import msal_authentication
 
 # Configuration for Microsoft Azure AD OAuth
-client_id = "cfa7fc3c-0a7c-4a45-aa87-f993ed70fd9e"  # Azure AD Application Client ID
-tenant_id = "94a76bb1-611b-4eb5-aee5-e312381c32cb"  # Azure AD Tenant ID
-redirect_uri = "https://video-intel-cg.streamlit.app/"  # Ensure this matches your Azure configuration
-
+client_id = "cfa7fc3c-0a7c-4a45-aa87-f993ed70fd9e"  # Replace with your Azure AD Application Client ID
+tenant_id = "94a76bb1-611b-4eb5-aee5-e312381c32cb"  # Replace with your Azure AD Tenant ID
 authority = f"https://login.microsoftonline.com/{tenant_id}"
 
 # Define scopes for access permissions
@@ -13,14 +11,14 @@ scopes = ["User.Read", "Sites.Read.All"]
 
 def main():
     st.title("Azure AD SSO Integration")
-    
+
     # Use msal_streamlit_authentication for SSO
     login_token = msal_authentication(
         auth={
             "clientId": client_id,
             "authority": authority,
-            "redirectUri": redirect_uri,
-            "postLogoutRedirectUri": redirect_uri,
+            "redirectUri": "/",  # Update this to match your deployment URL
+            "postLogoutRedirectUri": "/",
         },
         cache={
             "cacheLocation": "sessionStorage",
