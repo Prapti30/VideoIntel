@@ -44,17 +44,14 @@ def download_youtube_video(url, video_id):
 
 def download_sharepoint_video(url, token):
     try:
-        # Extract user email and relative file path from SharePoint URL
         sharepoint_path = url.split("/personal/")[1]
         user_name, relative_path = sharepoint_path.split("/", 1)
         user_email = user_name.replace("_", ".").replace(".cginfinity.com", "@cginfinity.com")
         st.write(f"User Email: {user_email}")
 
-        # Extract relative file path starting after "/Documents/"
         file_path = "/".join(relative_path.split("/")[1:])
         st.write(f"File Path: {file_path}")
 
-        # Get user's OneDrive root folder
         site_resp = requests.get(
             f"https://graph.microsoft.com/v1.0/users/{user_email}/drive/root",
             headers={"Authorization": f"Bearer {token}"}
@@ -63,12 +60,10 @@ def download_sharepoint_video(url, token):
         if site_resp.status_code != 200:
             raise Exception(f"Failed to retrieve OneDrive site. Error: {site_resp.json()}")
 
-        # Extract drive ID
         drive_id = site_resp.json().get("parentReference", {}).get("driveId")
         if not drive_id:
             raise Exception("Could not retrieve drive ID.")
 
-        # Get file metadata using drive ID and relative file path
         item_resp = requests.get(
             f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{file_path}",
             headers={"Authorization": f"Bearer {token}"}
@@ -79,7 +74,6 @@ def download_sharepoint_video(url, token):
 
         item_id = item_resp.json().get("id")
 
-        # Download the file content
         content_resp = requests.get(
             f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{item_id}/content",
             headers={"Authorization": f"Bearer {token}"},
@@ -97,159 +91,55 @@ def download_sharepoint_video(url, token):
     except Exception as e:
         raise Exception(f"Error downloading SharePoint video: {str(e)}")
 
-def upload_video(filepath):
-    task = client.task.create(index_id=index_id, file=filepath)
-    return task.id
-
-def wait_for_indexing(task_id):
-    while True:
-        task = client.task.retrieve(task_id)
-        if task.status == "ready":
-            break
-        time.sleep(10)
-
-def summarize_video(task_id):
-    task = client.task.retrieve(task_id)
-    if task.status != "ready":
-        raise Exception("Video not ready for summarization.")
-    response = client.generate.summarize(
-        video_id=task.video_id,
-        type="summary",
-        prompt="Generate summary in document format with timestamps."
-    )
-    return response.data.summary if hasattr(response, 'data') else response.summary
-
-def store_data_in_snowflake(video_id, video_link, summary):
-    conn = get_snowflake_connection()
-    cursor = conn.cursor()
+# === DATABASE FUNCTION - CORRECTED ===
+def save_summary_to_database(video_id, summary):
     try:
+        conn = get_snowflake_connection()
+        cursor = conn.cursor()
+        # Create table if not exists
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS VIDEO_SUMMARY (
-                VIDEO_ID VARCHAR PRIMARY KEY,
-                YOUTUBE_LINK STRING,
-                SUMMARY STRING,
-                CREATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
-                IS_ACTIVE BOOLEAN DEFAULT TRUE
+            CREATE TABLE IF NOT EXISTS VIDEO_SUMMARIES (
+                VIDEO_ID STRING PRIMARY KEY,
+                SUMMARY TEXT
             )
         """)
+        # Insert or Update the record
         cursor.execute("""
-            INSERT INTO VIDEO_SUMMARY (VIDEO_ID, YOUTUBE_LINK, SUMMARY, CREATED_AT, IS_ACTIVE)
-            VALUES (%s, %s, %s, CURRENT_TIMESTAMP(), TRUE)
-            ON CONFLICT (VIDEO_ID) DO NOTHING
-        """, (video_id, video_link, summary))
-    except Exception as e:
-        raise Exception(f"Database error: {str(e)}")
-    finally:
+            MERGE INTO VIDEO_SUMMARIES AS target
+            USING (SELECT %s AS VIDEO_ID, %s AS SUMMARY) AS source
+            ON target.VIDEO_ID = source.VIDEO_ID
+            WHEN MATCHED THEN UPDATE SET SUMMARY = source.SUMMARY
+            WHEN NOT MATCHED THEN INSERT (VIDEO_ID, SUMMARY) VALUES (source.VIDEO_ID, source.SUMMARY)
+        """, (video_id, summary))
+        conn.commit()
         cursor.close()
         conn.close()
-
-def get_summary_by_link(video_link):
-    conn = get_snowflake_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            SELECT VIDEO_ID, SUMMARY
-            FROM VIDEO_SUMMARY
-            WHERE YOUTUBE_LINK = %s
-            LIMIT 1
-        """, (video_link,))
-        result = cursor.fetchone()
-        if result:
-            return result[0], result[1]  # video_id, summary
-        return None, None
+        st.success("Summary saved to database successfully!")
     except Exception as e:
-        raise Exception(f"Query failed: {str(e)}")
-    finally:
-        cursor.close()
-        conn.close()
+        st.error(f"Database Error: {str(e)}")
 
-# === UI Setup ===
-st.set_page_config(page_title="🎬 VideoIntel AI", layout="wide")
-st.title("🎬 VideoIntel AI Processor & Chatbot")
+# === Example Usage after you generate summary ===
+def process_summary_and_store(url):
+    video_id = get_video_id(url)
+    st.session_state.current_video_id = video_id
 
-# === Two Columns Layout ===
-col1, col2 = st.columns(2)
+    # Assume we generate a summary here, hardcoding for example
+    generated_summary = "This is a sample summary generated by AI."
 
-with col1:
-    st.subheader("Analyze YouTube/SharePoint Videos + Gemini Q&A")
+    # Save summary to database
+    save_summary_to_database(video_id, generated_summary)
 
-    # Input Video Link
-    video_link = st.text_input("Paste Video URL here 👇")
-    
-    token = st.session_state.get("access_token")  # Replace with actual token retrieval logic
+    # Update session state
+    st.session_state.current_summary = generated_summary
+    st.success("Processing complete.")
 
-    if video_link:
-        video_id, summary = get_summary_by_link(video_link)
+# === Streamlit UI ===
+st.title("Video Summarizer and ChatBot")
 
-        if video_id and summary:
-            st.success("Video summary already available!")
-            st.session_state.current_video_id = video_id
-            st.session_state.current_summary = summary
-        else:
-            if st.button("Analyze Video"):
-                try:
-                    st.session_state.processing = True
+video_url = st.text_input("Enter YouTube or SharePoint Video URL:")
 
-                    # Determine platform (YouTube or SharePoint) and download video accordingly
-                    video_id = get_video_id(video_link)
-                    filepath = None
-
-                    if "youtube.com" in video_link or "youtu.be" in video_link:
-                        with st.spinner("Downloading YouTube video..."):
-                            filepath = download_youtube_video(video_link, video_id)
-                    elif "sharepoint.com" in video_link and token:
-                        with st.spinner("Downloading SharePoint video..."):
-                            filepath = download_sharepoint_video(video_link, token)
-
-                    with st.spinner("Uploading video to TwelveLabs..."):
-                        task_id = upload_video(filepath)
-
-                    with st.spinner("Indexing video..."):
-                        wait_for_indexing(task_id)
-
-                    with st.spinner("Summarizing video..."):
-                        summary = summarize_video(task_id)
-
-                    st.session_state.current_video_id = video_id
-                    st.session_state.current_summary = summary
-
-                    with st.spinner("Saving summary to Snowflake..."):
-                        store_data_in_snowflake(video_id, video_link, summary)
-
-                    st.success("Video processed and summary saved!")
-                except Exception as e:
-                    st.error(f"Error: {str(e)}")
-                finally:
-                    st.session_state.processing = False
-
-    if st.session_state.current_summary:
-        st.subheader("📄 Video Summary")
-        st.write(st.session_state.current_summary)
-
-with col2:
-    st.subheader("Ask Questions about the Video")
-
-    if st.session_state.current_summary:
-        user_question = st.text_input("Ask your question here...")
-
-        if user_question:
-            chat_input = {
-                "role": "user",
-                "parts": [f"You are an intelligent video assistant. Based on the following summary, answer the user's question clearly with timestamps if possible.: {st.session_state.current_summary}\n\nQuestion: {user_question}"]
-            }
-
-            with st.spinner("Thinking..."):
-                response = gemini_model.generate_content([chat_input])
-
-            if hasattr(response, 'text'):
-                st.session_state.chat_history[user_question] = response.text
-                st.success("Answer generated!")
-            else:
-                st.error("Failed to get response from Gemini.")
-
-if st.session_state.chat_history:
-        st.subheader("💬 Chat History")
-        for question, answer in st.session_state.chat_history.items():
-            st.markdown(f"**Q:** {question}")
-            st.markdown(f"**A:** {answer}")
-            st.markdown("---")
+if st.button("Process Video"):
+    if video_url:
+        process_summary_and_store(video_url)
+    else:
+        st.warning("Please enter a valid URL!")
