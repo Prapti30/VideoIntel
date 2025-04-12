@@ -26,6 +26,7 @@ def log_screen():
 
 def video_data(video_url,token):
     if video_url and token:
+        st.write(token)
     # Convert SharePoint URL to Microsoft Graph API URL
         sharepoint_url = video_url.split('/sites/')[1]
         site_name, relative_path = sharepoint_url.split('/', 1)
@@ -66,7 +67,6 @@ def main():
         )
     if "code" in query_params:
         code = query_params["code"][0]
-        st.write(code)
         
 
         
