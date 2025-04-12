@@ -91,10 +91,10 @@ def main():
                     video_data(video_url,token)
             else:
                 st.write("Failed to authenticate")
-    else:
-        # Redirect user for authentication
-        auth_url = app.get_authorization_request_url(scopes=["User.Read", "Sites.Read.All"], redirect_uri=redirect_uri)
-        st.write(f"Please authenticate by clicking [here]({auth_url})")
+        else:
+            # Redirect user for authentication
+            auth_url = app.get_authorization_request_url(scopes=["User.Read", "Sites.Read.All"], redirect_uri=redirect_uri)
+            st.write(f"Please authenticate by clicking [here]({auth_url})")
 
 if __name__ == "__main__":
     main()
