@@ -73,7 +73,6 @@ def main():
         # Now, exchange the authorization code for an access token
         result = app.acquire_token_by_authorization_code(
             code,
-            client_secret=client_credential,
             scopes=["User.Read", "Sites.Read.All"],
             redirect_uri=redirect_uri
         )
@@ -87,7 +86,7 @@ def main():
             video_data(video_url,access_token)
         else:
             st.write("Error: Could not acquire token.")
-            st.write(result) 
+            st.write(result)
     
     #     credential = ClientSecretCredential(
     #     tenant_id=tenant_id,
