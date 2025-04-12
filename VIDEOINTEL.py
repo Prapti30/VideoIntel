@@ -71,8 +71,7 @@ def get_user_info(access_token):
 
 # --- MAIN APP ---
 def main():
-    video_url = st.text_input("Paste SharePoint Video URL")
-
+    video_url="https://cygrp-my.sharepoint.com/:v:/r/personal/sanchit_arora_cginfinity_com/Documents/Microsoft%20Teams%20Chat%20Files/DOCINTEL.MP4?csf=1&web=1&e=JJhwEf&nav=eyJyZWZlcnJhbEluZm8iOnsicmVmZXJyYWxBcHAiOiJTdHJlYW1XZWJBcHAiLCJyZWZlcnJhbFZpZXciOiJTaGFyZURpYWxvZy1MaW5rIiwicmVmZXJyYWxBcHBQbGF0Zm9ybSI6IldlYiIsInJlZmVycmFsTW9kZSI6InZpZXcifX0%3D&xsdata=MDV8MDJ8fDlhNjMwOWNkMjZlYzQyMTM3ZjAwMDhkZDc5ODJmYzAwfDk0YTc2YmIxNjExYjRlYjVhZWU1ZTMxMjM4MWMzMmNifDB8MHw2Mzg4MDAzMjU2MzcwNzg3ODR8VW5rbm93bnxWR1ZoYlhOVFpXTjFjbWwwZVZObGNuWnBZMlY4ZXlKV0lqb2lNQzR3TGpBd01EQWlMQ0pRSWpvaVYybHVNeklpTENKQlRpSTZJazkwYUdWeUlpd2lWMVFpT2pFeGZRPT18MXxMMk5vWVhSekx6RTVPbU00Wm1NNE5qVmlMV1V5WW1JdE5EQTNaUzFpTWpCa0xXUmhOR1ZsWlRWbU1HVmtObDltTWpBMU56VTFZeTAwTldFeExUUm1PR1l0T1RBeVpDMWhNakkxWldRNFkySTBZalpBZFc1eExtZGliQzV6Y0dGalpYTXZiV1Z6YzJGblpYTXZNVGMwTkRRek5UYzJNakV6TkE9PXw4MjI1MmJlNzBhOGU0YjMyMzA5MDA4ZGQ3OTgyZmMwMHw3ODIyYWMxMjI5MDI0NDExYjUxZDM3MGNlODFjMTA3Yg%3D%3D&sdata=ejhqTWs0WktaRk5RQ3VwUG5iRGFUL2g4MFh2TDVzQ1RSTHRyMmlOVTNWRT0%3D&ovuser=94a76bb1-611b-4eb5-aee5-e312381c32cb%2Cprapti.more%40cginfinity.com"
     if video_url and st.session_state.token:
     # Convert SharePoint URL to Microsoft Graph API URL
         sharepoint_url = video_url.split('/sites/')[1]
