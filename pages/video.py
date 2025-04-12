@@ -7,11 +7,11 @@ def video_data(video_url, token):
             # Extract user email from the SharePoint URL
             sharepoint_path = video_url.split("/personal/")[1]
             user_name, relative_path = sharepoint_path.split("/", 1)
-            user_name = user_name.split('_','.')
-            user_email = user_name.replace('.cginfinity.com','@cginfinity.com')
+            user_name = user_name.split("_",".")
+            user_email = user_name.replace(".cginfinity.com","@cginfinity.com")
             st.write(user_email) # Convert sanchit_arora_cginfinity_com → sanchit@arora.cginfinity.com
 
-            # Get site ID for the user's OneDrive
+            # Get site ID for the user"s OneDrive
             site_resp = requests.get(
                 f"https://graph.microsoft.com/v1.0/users/{user_email}/drive/root",  # Use OneDrive endpoint
                 headers={"Authorization": f"Bearer {token}"}
