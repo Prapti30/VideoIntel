@@ -60,7 +60,7 @@ def get_video_folder_id(access_token, user_email):
         "Authorization": f"Bearer {access_token}"
     }
     # Replace with actual folder path for work videos
-    endpoint = f"https://graph.microsoft.com/v1.0/users/{user_email}/drive/root:/Documents/WorkVideos:/children"
+    endpoint = f"https://graph.microsoft.com/v1.0/users/{user_email}/drives"
     response = requests.get(endpoint, headers=headers)
     if response.status_code == 200:
         files = response.json().get('value', [])
