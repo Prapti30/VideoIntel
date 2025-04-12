@@ -1,6 +1,6 @@
 import streamlit as st
 import requests
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode
 import re
 
 # --- CONFIG for Microsoft Azure AD OAuth ---
@@ -55,16 +55,16 @@ def get_user_info(access_token):
         st.error(f"Failed to fetch user info: {response.text}")
         return None
 
-def get_site_id(access_token, hostname, site_path):
+def get_default_site_id(access_token):
     headers = {
         "Authorization": f"Bearer {access_token}"
     }
-    endpoint = f"https://graph.microsoft.com/v1.0/sites/{hostname}:/sites/{site_path}"
-    response = requests.get(endpoint, headers=headers)
+    response = requests.get("https://graph.microsoft.com/v1.0/me/drive", headers=headers)
     if response.status_code == 200:
-        return response.json().get('id')
+        site_data = response.json()
+        return site_data.get('parentReference', {}).get('siteId')
     else:
-        st.error(f"Failed to get Site ID: {response.text}")
+        st.error(f"Failed to fetch default site info: {response.text}")
         return None
 
 def list_drive_items(access_token, site_id):
@@ -84,7 +84,7 @@ def main():
     st.set_page_config(page_title="SharePoint Files Browser", page_icon="🗂️")
     st.title("🗂️ Browse Your SharePoint Files ")
 
-    query_params =  st.experimental_get_query_params()
+    query_params = st.experimental_get_query_params()
 
     if "code" not in query_params:
         auth_url = build_auth_url()
@@ -101,28 +101,22 @@ def main():
                 user_email = user_info.get("mail") or user_info.get("userPrincipalName")
                 st.success(f"Logged in as: {user_email}")
 
-                st.subheader("📁 Enter SharePoint Site Details")
+                site_id = get_default_site_id(access_token)
 
-                hostname = st.text_input("Enter SharePoint Hostname (example: yourcompany.sharepoint.com)", "")
-                site_path = st.text_input("Enter Site Name (example: YourSiteName)", "")
+                if site_id:
+                    st.success(f"Found default Site ID: {site_id}")
+                    st.subheader("📂 Files and Folders:")
 
-                if hostname and site_path:
-                    site_id = get_site_id(access_token, hostname, site_path)
+                    drive_items = list_drive_items(access_token, site_id)
 
-                    if site_id:
-                        st.success(f"Found Site ID: {site_id}")
-                        st.subheader("📂 Files and Folders:")
-
-                        drive_items = list_drive_items(access_token, site_id)
-
-                        if drive_items:
-                            for item in drive_items:
-                                if item.get('folder'):
-                                    st.write(f"📁 {item['name']}")
-                                else:
-                                    st.write(f"📄 {item['name']}")
-                        else:
-                            st.info("No files or folders found.")
+                    if drive_items:
+                        for item in drive_items:
+                            if item.get('folder'):
+                                st.write(f"📁 {item['name']}")
+                            else:
+                                st.write(f"📄 {item['name']}")
+                    else:
+                        st.info("No files or folders found.")
         else:
             st.error("Login failed. Please try again.")
 
