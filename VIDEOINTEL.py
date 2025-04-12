@@ -81,7 +81,7 @@ def main():
         if "access_token" in result:
             st.session_state.access_token = result["access_token"]
             st.experimental_set_query_params()  # Clear the URL query parameters
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.write("Error: Could not acquire token.")
             st.write(result)
