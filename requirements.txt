@@ -6,3 +6,4 @@ google-generativeai
 msal
 msal_streamlit_authentication
 streamlit-extras
+yt-dlp
