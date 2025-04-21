@@ -7,6 +7,7 @@ from urllib.parse import urlparse, parse_qs
 from twelvelabs import TwelveLabs
 from snowflake_connect import get_snowflake_connection
 from google.generativeai import configure, GenerativeModel
+import os
  
 # === API Keys ===
 api_key = "tlk_1CPRENS1M7PJ1G2HTQ1QN2JHC2RS"
@@ -37,10 +38,17 @@ def get_video_id(url):
     return parsed_url.path.split('/')[-1]  # For SharePoint or other links
  
 def download_youtube_video(url, video_id):
-    output_path = f"video_{video_id}.mp4"
-    command = f"yt-dlp -f best -o {output_path} {url}"
-    subprocess.run(command, shell=True, check=True)
-    return output_path
+    command = ["yt-dlp", "-f", "best", url]
+    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+ 
+    if result.returncode != 0:
+        raise Exception(f"yt-dlp failed: {result.stderr}")
+    # Find most recently modified video file (assumes it's the one downloaded)
+    files = [f for f in os.listdir('.') if f.endswith(".mp4")]
+    if not files:
+        raise Exception("No video file downloaded.")
+    latest_file = max(files, key=os.path.getctime)
+    return latest_file
  
 def download_sharepoint_video(url, token):
     try:
